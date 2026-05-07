@@ -1,3 +1,8 @@
+// Service worker (PWA)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+}
+
 // Auto-dismiss flash alerts
 document.querySelectorAll('.flash-msg').forEach(el => {
   setTimeout(() => bootstrap.Alert.getOrCreateInstance(el)?.close(), 4000);

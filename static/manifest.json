@@ -1,0 +1,36 @@
+{
+  "name": "HikePath",
+  "short_name": "HikePath",
+  "description": "Pianifica ed esplora percorsi di hiking",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a2e1a",
+  "theme_color": "#198754",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuova mappa",
+      "url": "/map",
+      "description": "Pianifica un nuovo percorso"
+    },
+    {
+      "name": "I miei percorsi",
+      "url": "/routes",
+      "description": "Vedi tutti i percorsi salvati"
+    }
+  ]
+}
