@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}Home — PredictSport{% endblock %}
+
+{% block content %}
+<div class="p-3">
+
+  <!-- Greeting -->
+  <div class="mb-3">
+    <h5 class="fw-bold mb-0">Ciao, {{ current_user.username }} 👋</h5>
+    <p class="text-muted small mb-0">Ecco il riepilogo delle tue attività</p>
+  </div>
+
+  <!-- Stats cards -->
+  <div class="row g-2 mb-3">
+    <div class="col-4">
+      <div class="card border-0 bg-primary text-white text-center py-3 shadow-sm">
+        <div class="fs-4 fw-bold">{{ current_user.predictions_count }}</div>
+        <div class="small opacity-75">Predizioni</div>
+      </div>
+    </div>
+    <div class="col-4">
+      <div class="card border-0 bg-success text-white text-center py-3 shadow-sm">
+        <div class="fs-4 fw-bold">{{ current_user.accuracy }}%</div>
+        <div class="small opacity-75">Accuratezza</div>
+      </div>
+    </div>
+    <div class="col-4">
+      <div class="card border-0 bg-warning text-white text-center py-3 shadow-sm">
+        <div class="fs-4 fw-bold">#{{ current_user.ranking }}</div>
+        <div class="small opacity-75">Classifica</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Streak badge -->
+  {% if current_user.success_streak > 0 %}
+  <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3">
+    <i class="bi bi-fire fs-5 text-warning"></i>
+    <span><strong>{{ current_user.success_streak }} streak</strong> consecutiva! Continua così!</span>
+  </div>
+  {% endif %}
+
+  <!-- Quick action -->
+  <a href="{{ url_for('new_prediction') }}" class="btn btn-primary w-100 mb-4 fw-semibold">
+    <i class="bi bi-plus-circle me-2"></i>Nuova Predizione
+  </a>
+
+  <!-- Recent predictions -->
+  <h6 class="fw-bold mb-2">Ultime predizioni</h6>
+  {% if recent %}
+  <div class="list-group shadow-sm mb-4">
+    {% for pred in recent %}
+    <div class="list-group-item list-group-item-action px-3 py-2">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="fw-semibold small">{{ pred.match }}</div>
+          <div class="text-muted" style="font-size:.8rem">{{ pred.prediction_text }}</div>
+        </div>
+        {% if pred.result == 'correct' %}
+          <span class="badge bg-success rounded-pill ms-2">✓</span>
+        {% elif pred.result == 'wrong' %}
+          <span class="badge bg-danger rounded-pill ms-2">✗</span>
+        {% else %}
+          <span class="badge bg-secondary rounded-pill ms-2">—</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-4">
+    <i class="bi bi-lightning fs-2 d-block mb-2"></i>
+    <small>Nessuna predizione ancora. Inizia ora!</small>
+  </div>
+  {% endif %}
+
+  <!-- Top 5 leaderboard -->
+  <h6 class="fw-bold mb-2">Top 5 Classifica</h6>
+  <div class="card shadow-sm">
+    <ul class="list-group list-group-flush">
+      {% for u in top_users %}
+      <li class="list-group-item d-flex align-items-center gap-3 px-3 py-2">
+        <span class="fw-bold {% if loop.index == 1 %}text-warning{% elif loop.index == 2 %}text-secondary{% elif loop.index == 3 %}text-danger{% else %}text-muted{% endif %}"
+              style="width:1.4rem;text-align:center">
+          {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+        </span>
+        <div class="flex-grow-1">
+          <div class="fw-semibold small">{{ u.username }}</div>
+          <div class="text-muted" style="font-size:.75rem">{{ u.predictions_count }} predizioni</div>
+        </div>
+        <div class="text-end">
+          <span class="badge bg-success">{{ u.accuracy }}%</span>
+          {% if u.success_streak > 0 %}
+          <div class="text-muted mt-1" style="font-size:.7rem">🔥{{ u.success_streak }}</div>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Platform stats -->
+  <div class="d-flex gap-3 mt-3 text-muted small justify-content-center">
+    <span><i class="bi bi-people-fill me-1"></i>{{ total_users }} utenti</span>
+    <span><i class="bi bi-lightning-fill me-1"></i>{{ total_predictions }} predizioni totali</span>
+  </div>
+
+</div>
+{% endblock %}

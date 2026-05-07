@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Community — PredictSport{% endblock %}
+
+{% block content %}
+<div class="bg-white px-3 py-3 shadow-sm sticky-top" style="top:56px;z-index:100">
+  <h5 class="fw-bold mb-2">Community</h5>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('social', tab='ranking') }}"
+       class="btn btn-sm rounded-pill {% if tab == 'ranking' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-trophy-fill me-1"></i>Classifica
+    </a>
+    <a href="{{ url_for('social', tab='discussion') }}"
+       class="btn btn-sm rounded-pill {% if tab == 'discussion' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-chat-fill me-1"></i>Discussione
+    </a>
+  </div>
+</div>
+
+<div class="p-3">
+
+  {% if tab == 'ranking' %}
+  <!-- ── Ranking ── -->
+  <div class="d-flex flex-column gap-2">
+    {% for u in top_users %}
+    <div class="card shadow-sm border-0">
+      <div class="card-body d-flex align-items-center gap-3 py-2 px-3">
+        <div class="rank-badge {% if loop.index == 1 %}rank-gold{% elif loop.index == 2 %}rank-silver{% elif loop.index == 3 %}rank-bronze{% else %}rank-default{% endif %}">
+          {% if loop.index <= 3 %}
+            {{ ['🥇','🥈','🥉'][loop.index-1] }}
+          {% else %}
+            {{ loop.index }}
+          {% endif %}
+        </div>
+        <div class="flex-grow-1">
+          <div class="fw-semibold small">{{ u.username }}</div>
+          <div class="text-muted" style="font-size:.75rem">
+            {{ u.predictions_count }} predizioni
+          </div>
+        </div>
+        <div class="text-end">
+          <span class="badge bg-success mb-1 d-block">{{ u.accuracy }}%</span>
+          {% if u.success_streak > 0 %}
+          <span class="text-warning small">🔥 {{ u.success_streak }} streak</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-people fs-1 d-block mb-2"></i>
+      <small>Nessun utente ancora.</small>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+  <!-- ── Discussion ── -->
+
+  <!-- New comment form -->
+  <div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-3">
+      <form method="POST" action="{{ url_for('add_comment') }}">
+        <textarea name="content" class="form-control mb-2" rows="3"
+                  placeholder="Condividi la tua analisi..." required></textarea>
+        <div class="d-flex justify-content-end">
+          <button type="submit" class="btn btn-primary btn-sm px-4">
+            <i class="bi bi-send-fill me-1"></i>Commenta
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Comments list -->
+  <div class="d-flex flex-column gap-2" id="comments-list">
+    {% for comment in comments %}
+    <div class="card shadow-sm border-0" id="comment-{{ comment.id }}">
+      <div class="card-body p-3">
+        <div class="d-flex gap-2 align-items-start">
+          <div class="avatar-circle small">{{ comment.user.username[0].upper() }}</div>
+          <div class="flex-grow-1">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="fw-semibold small">{{ comment.user.username }}</span>
+              <span class="text-muted" style="font-size:.72rem">{{ comment.time_ago() }}</span>
+            </div>
+            <p class="mb-2 small">{{ comment.content }}</p>
+            <div class="d-flex gap-3">
+              <button class="btn btn-sm p-0 like-btn {% if comment.is_liked_by(current_user.id) %}text-primary{% else %}text-muted{% endif %}"
+                      data-comment-id="{{ comment.id }}">
+                <i class="bi bi-hand-thumbs-up-fill me-1"></i>
+                <span class="like-count">{{ comment.likes_count }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-chat-square fs-1 d-block mb-2"></i>
+      <small>Nessun commento ancora. Sii il primo!</small>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% endif %}
+</div>
+
+<!-- Active users footer -->
+<div class="bg-white border-top px-3 py-2 d-flex align-items-center gap-2 text-muted small"
+     style="position:fixed;bottom:56px;left:0;right:0;z-index:99">
+  <i class="bi bi-circle-fill text-success" style="font-size:.5rem"></i>
+  {{ top_users|length }} utenti attivi
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.like-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const commentId = btn.dataset.commentId;
+    const res = await fetch(`/social/comment/${commentId}/like`, { method: 'POST' });
+    const data = await res.json();
+    btn.querySelector('.like-count').textContent = data.likes;
+    btn.classList.toggle('text-primary', data.liked);
+    btn.classList.toggle('text-muted', !data.liked);
+  });
+});
+</script>
+{% endblock %}

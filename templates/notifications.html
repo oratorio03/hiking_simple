@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Notifiche — PredictSport{% endblock %}
+
+{% block content %}
+<div class="bg-white px-3 py-3 shadow-sm sticky-top" style="top:56px;z-index:100">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <h5 class="fw-bold mb-0">
+      Notifiche
+      {% if unread_count > 0 %}
+      <span class="badge bg-danger ms-1" style="font-size:.65rem">{{ unread_count }}</span>
+      {% endif %}
+    </h5>
+    {% if unread_count > 0 %}
+    <form method="POST" action="{{ url_for('mark_all_read') }}" class="m-0">
+      <button type="submit" class="btn btn-link btn-sm text-primary p-0 text-decoration-none small">
+        Segna tutte come lette
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('notifications', filter='all') }}"
+       class="btn btn-sm rounded-pill {% if filter == 'all' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      Tutte
+    </a>
+    <a href="{{ url_for('notifications', filter='unread') }}"
+       class="btn btn-sm rounded-pill {% if filter == 'unread' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      Non lette
+    </a>
+  </div>
+</div>
+
+<div>
+  {% for notif in notifications %}
+  <div class="notif-item {% if not notif.read %}notif-unread{% endif %} border-bottom px-3 py-3"
+       id="notif-{{ notif.id }}" data-read="{{ notif.read|lower }}">
+    <div class="d-flex gap-3 align-items-start">
+      <div class="notif-icon mt-1">
+        {% if notif.type == 'prediction' %}
+          <i class="bi bi-lightning-fill text-warning fs-5"></i>
+        {% elif notif.type == 'social' %}
+          <i class="bi bi-chat-fill text-primary fs-5"></i>
+        {% else %}
+          <i class="bi bi-trophy-fill text-success fs-5"></i>
+        {% endif %}
+      </div>
+      <div class="flex-grow-1">
+        <div class="fw-semibold small">{{ notif.title }}</div>
+        <p class="text-muted small mb-1">{{ notif.message }}</p>
+        <div class="d-flex align-items-center gap-3">
+          <span class="text-muted" style="font-size:.72rem">{{ notif.time_ago() }}</span>
+          {% if not notif.read %}
+          <button class="btn btn-link btn-sm p-0 text-primary small text-decoration-none mark-read-btn"
+                  data-notif-id="{{ notif.id }}">
+            Segna come letta
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% if not notif.read %}
+      <div class="unread-dot"></div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-bell-slash fs-1 d-block mb-2"></i>
+    <small>Nessuna notifica{% if filter == 'unread' %} non letta{% endif %}.</small>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.mark-read-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const notifId = btn.dataset.notifId;
+    await fetch(`/notifications/${notifId}/read`, { method: 'POST' });
+    const item = document.getElementById(`notif-${notifId}`);
+    item.classList.remove('notif-unread');
+    btn.closest('.d-flex').querySelector('.mark-read-btn')?.remove();
+    item.querySelector('.unread-dot')?.remove();
+  });
+});
+</script>
+{% endblock %}

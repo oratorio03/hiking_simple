@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}Predizioni — PredictSport{% endblock %}
+
+{% block content %}
+<div class="bg-white px-3 py-3 shadow-sm sticky-top d-flex align-items-center justify-content-between" style="top:56px;z-index:100">
+  <h5 class="fw-bold mb-0">Le mie Predizioni</h5>
+  <a href="{{ url_for('new_prediction') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-lg me-1"></i>Nuova
+  </a>
+</div>
+
+<!-- Summary bar -->
+{% if predictions %}
+{% set total = predictions|length %}
+{% set correct = predictions|selectattr('result', 'equalto', 'correct')|list|length %}
+{% set wrong = predictions|selectattr('result', 'equalto', 'wrong')|list|length %}
+{% set pending = predictions|selectattr('result', 'none')|list|length %}
+<div class="d-flex gap-2 px-3 py-2 bg-white border-bottom overflow-auto">
+  <span class="badge bg-secondary rounded-pill">{{ total }} totali</span>
+  <span class="badge bg-success rounded-pill">{{ correct }} corrette</span>
+  <span class="badge bg-danger rounded-pill">{{ wrong }} sbagliate</span>
+  <span class="badge bg-warning text-dark rounded-pill">{{ pending }} in attesa</span>
+</div>
+{% endif %}
+
+<div class="p-3 d-flex flex-column gap-2">
+  {% for pred in predictions %}
+  <div class="card shadow-sm border-0
+    {% if pred.result == 'correct' %}border-start border-success border-3{% elif pred.result == 'wrong' %}border-start border-danger border-3{% endif %}">
+    <div class="card-body p-3">
+      <div class="d-flex justify-content-between align-items-start mb-1">
+        <div class="fw-semibold small">{{ pred.match }}</div>
+        {% if pred.result == 'correct' %}
+          <span class="badge bg-success">✓ Corretta</span>
+        {% elif pred.result == 'wrong' %}
+          <span class="badge bg-danger">✗ Sbagliata</span>
+        {% else %}
+          <span class="badge bg-warning text-dark">⏳ In attesa</span>
+        {% endif %}
+      </div>
+      <div class="text-muted small mb-2">
+        <i class="bi bi-lightning-fill text-primary me-1"></i>{{ pred.prediction_text }}
+      </div>
+      <div class="text-muted" style="font-size:.72rem">{{ pred.time_ago() }}</div>
+
+      {% if pred.result is none %}
+      <div class="d-flex gap-2 mt-2">
+        <form method="POST" action="{{ url_for('set_result', pred_id=pred.id) }}" class="m-0">
+          <input type="hidden" name="result" value="correct">
+          <button type="submit" class="btn btn-outline-success btn-sm">
+            <i class="bi bi-check2 me-1"></i>Corretta
+          </button>
+        </form>
+        <form method="POST" action="{{ url_for('set_result', pred_id=pred.id) }}" class="m-0">
+          <input type="hidden" name="result" value="wrong">
+          <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-x me-1"></i>Sbagliata
+          </button>
+        </form>
+        <form method="POST" action="{{ url_for('delete_prediction', pred_id=pred.id) }}" class="m-0 ms-auto"
+              onsubmit="return confirm('Eliminare questa predizione?')">
+          <button type="submit" class="btn btn-link btn-sm text-muted p-0">
+            <i class="bi bi-trash"></i>
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-lightning fs-1 d-block mb-2"></i>
+    <p class="small">Nessuna predizione ancora.</p>
+    <a href="{{ url_for('new_prediction') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-lg me-1"></i>Aggiungi la prima
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

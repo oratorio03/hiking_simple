@@ -1,0 +1,135 @@
+/* ── Layout ─────────────────────────────────────────────────── */
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.pb-nav { padding-bottom: 72px; }
+
+/* ── Bottom navigation ───────────────────────────────────────── */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  z-index: 1000;
+  height: 60px;
+}
+
+.bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: #6c757d;
+  font-size: .65rem;
+  gap: 2px;
+  flex: 1;
+  padding: 6px 0;
+  transition: color .15s;
+}
+
+.bottom-nav-item i { font-size: 1.3rem; }
+.bottom-nav-item.active { color: #0d6efd; }
+
+/* ── Avatar circles ─────────────────────────────────────────── */
+
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0d6efd, #6610f2);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .9rem;
+  flex-shrink: 0;
+}
+
+.avatar-circle.small {
+  width: 32px;
+  height: 32px;
+  font-size: .8rem;
+}
+
+.avatar-circle-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.25);
+  border: 3px solid rgba(255,255,255,.6);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.6rem;
+  flex-shrink: 0;
+}
+
+/* ── Rank badges ────────────────────────────────────────────── */
+
+.rank-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: .85rem;
+  flex-shrink: 0;
+}
+
+.rank-gold   { background: #fff3cd; }
+.rank-silver { background: #f8f9fa; }
+.rank-bronze { background: #fde8d8; }
+.rank-default { background: #f0f0f0; color: #666; }
+
+/* ── Notifications ─────────────────────────────────────────── */
+
+.notif-item { background: white; transition: background .2s; }
+.notif-unread { background: #eff6ff; }
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0d6efd;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Cards ──────────────────────────────────────────────────── */
+
+.card { border-radius: 12px !important; }
+.list-group-item:first-child { border-radius: 12px 12px 0 0 !important; }
+.list-group-item:last-child  { border-radius: 0 0 12px 12px !important; }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+
+.btn { border-radius: 8px; }
+.btn-sm { border-radius: 6px; }
+.rounded-pill { border-radius: 999px !important; }
+
+/* ── Forms ──────────────────────────────────────────────────── */
+
+.form-control:focus, .form-select:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 .2rem rgba(13,110,253,.15);
+}
+
+/* ── Progress bar ───────────────────────────────────────────── */
+
+.progress { border-radius: 999px; }
+.progress-bar { border-radius: 999px; }
+
+/* ── Alerts ─────────────────────────────────────────────────── */
+
+.alert { border-radius: 10px; border: none; }
