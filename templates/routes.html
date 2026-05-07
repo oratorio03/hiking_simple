@@ -33,8 +33,18 @@
           <div class="route-name">{{ route.name }}</div>
           <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
         </div>
+        <!-- Trail type + hazard icons -->
+        <div class="d-flex flex-wrap gap-1 mb-1">
+          <span class="badge badge-trail-sm">{{ route.trail_type or 'E' }}</span>
+          <span class="badge bg-light text-muted border" style="font-size:.65rem">{{ route.route_type_label }}</span>
+          {% for key, (icon, color, label) in route.hazard_meta %}
+          <span class="text-{{ color }}" title="{{ label }}" style="font-size:.8rem">
+            <i class="bi {{ icon }}"></i>
+          </span>
+          {% endfor %}
+        </div>
         {% if route.description %}
-        <div class="route-desc mb-1">{{ route.description[:80] }}{% if route.description|length > 80 %}…{% endif %}</div>
+        <div class="route-desc mb-1">{{ route.description[:70] }}{% if route.description|length > 70 %}…{% endif %}</div>
         {% endif %}
         <div class="route-meta">
           <span><i class="bi bi-arrows-expand-vertical"></i> {{ "%.1f"|format(route.distance_km) }} km</span>
@@ -42,7 +52,12 @@
           {% if route.elevation_gain_m %}
           <span><i class="bi bi-graph-up"></i> +{{ route.elevation_gain_m }}m</span>
           {% endif %}
-          <span><i class="bi bi-check-circle"></i> {{ route.logs|length }} uscite</span>
+          {% if route.avg_slope_pct is not none %}
+          <span class="text-{{ route.slope_color(route.avg_slope_pct) }}">
+            <i class="bi bi-slash-lg"></i> {{ "%.0f"|format(route.avg_slope_pct) }}%
+          </span>
+          {% endif %}
+          <span><i class="bi bi-check-circle"></i> {{ route.logs|length }}</span>
           <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
         </div>
       </div>

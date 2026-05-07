@@ -3,20 +3,19 @@
 
 {% block head %}
 <style>
-  #detail-map { height: 45vh; min-height: 200px; }
+  #detail-map { height: 42vh; min-height: 200px; }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- Map preview -->
 <div id="detail-map"></div>
 
 <div class="page-content">
 
   <!-- Header -->
-  <div class="d-flex align-items-start justify-content-between mb-3">
-    <div>
+  <div class="d-flex align-items-start gap-2 mb-2 mt-1">
+    <div class="flex-grow-1">
       <h5 class="fw-bold mb-1">{{ route.name }}</h5>
       {% if route.description %}
       <p class="text-muted small mb-0">{{ route.description }}</p>
@@ -25,33 +24,106 @@
     <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
   </div>
 
-  <!-- Stats -->
-  <div class="stats-grid mb-3">
-    <div class="stat-card">
+  <!-- Trail type + route shape badges -->
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <span class="badge badge-trail">{{ route.trail_type_label }}</span>
+    <span class="badge bg-light text-dark border">
+      <i class="bi bi-signpost-split me-1"></i>{{ route.route_type_label }}
+    </span>
+    <span class="badge bg-light text-dark border">
+      <i class="bi bi-layers me-1"></i>{{ route.surface_label }}
+    </span>
+    {% if route.ferrata_grade %}
+    <span class="badge bg-danger">
+      <i class="bi bi-ladder me-1"></i>Ferrata {{ route.ferrata_grade }}
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- Hazards -->
+  {% if route.hazard_meta %}
+  <div class="hazard-pills mb-3">
+    {% for key, (icon, color, label) in route.hazard_meta %}
+    <span class="hazard-pill text-{{ color }}">
+      <i class="bi {{ icon }} me-1"></i>{{ label }}
+    </span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Main stats grid -->
+  <div class="detail-stats-grid mb-3">
+    <div class="dstat">
       <i class="bi bi-arrows-expand-vertical text-success"></i>
-      <div class="stat-val">{{ "%.1f"|format(route.distance_km) }}</div>
-      <div class="stat-label">km</div>
+      <div class="dstat-val">{{ "%.1f"|format(route.distance_km) }}</div>
+      <div class="dstat-label">km</div>
     </div>
-    <div class="stat-card">
+    <div class="dstat">
       <i class="bi bi-clock text-warning"></i>
-      <div class="stat-val">{{ route.duration_str() }}</div>
-      <div class="stat-label">stimato</div>
+      <div class="dstat-val">{{ route.duration_str() }}</div>
+      <div class="dstat-label">stimato</div>
     </div>
-    <div class="stat-card">
+    <div class="dstat">
       <i class="bi bi-graph-up text-danger"></i>
-      <div class="stat-val">{{ route.elevation_gain_m }}</div>
-      <div class="stat-label">m dislivello</div>
+      <div class="dstat-val">+{{ route.elevation_gain_m }}</div>
+      <div class="dstat-label">m salita</div>
     </div>
-    <div class="stat-card">
-      <i class="bi bi-flag-fill text-primary"></i>
-      <div class="stat-val">{{ route.waypoints|length }}</div>
-      <div class="stat-label">tappe</div>
+    <div class="dstat">
+      <i class="bi bi-graph-down text-primary"></i>
+      <div class="dstat-val">-{{ route.elevation_loss_m or 0 }}</div>
+      <div class="dstat-label">m discesa</div>
     </div>
   </div>
 
+  <!-- Elevation + slope stats -->
+  {% if route.max_elevation_m or route.avg_slope_pct is not none %}
+  <div class="slope-card mb-3">
+    <div class="slope-card-title">Pendenza e quota</div>
+    <div class="slope-stats-row">
+      {% if route.max_elevation_m %}
+      <div class="slope-stat">
+        <div class="slope-stat-val">{{ route.max_elevation_m }}</div>
+        <div class="slope-stat-label">m quota max</div>
+      </div>
+      <div class="slope-stat">
+        <div class="slope-stat-val">{{ route.min_elevation_m or '—' }}</div>
+        <div class="slope-stat-label">m quota min</div>
+      </div>
+      {% endif %}
+      {% if route.avg_slope_pct is not none %}
+      {% set sc = route.slope_color(route.avg_slope_pct) %}
+      <div class="slope-stat">
+        <div class="slope-stat-val text-{{ sc }}">{{ "%.1f"|format(route.avg_slope_pct) }}%</div>
+        <div class="slope-stat-label">pendenza media</div>
+      </div>
+      {% endif %}
+      {% if route.max_slope_asc_pct is not none %}
+      <div class="slope-stat">
+        <div class="slope-stat-val text-danger">+{{ "%.1f"|format(route.max_slope_asc_pct) }}%</div>
+        <div class="slope-stat-label">max salita</div>
+      </div>
+      {% endif %}
+      {% if route.max_slope_desc_pct is not none %}
+      <div class="slope-stat">
+        <div class="slope-stat-val text-primary">{{ "%.1f"|format(route.max_slope_desc_pct) }}%</div>
+        <div class="slope-stat-label">max discesa</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Slope legend -->
+    <div class="slope-legend mt-2">
+      <span class="text-success">■ &lt;10% dolce</span>
+      <span class="text-warning">■ 10-20% moderata</span>
+      <span style="color:#fd7e14">■ 20-30% ripida</span>
+      <span class="text-danger">■ &gt;30% molto ripida</span>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Waypoints -->
   {% if route.waypoints %}
-  <h6 class="section-title">Tappe</h6>
+  <h6 class="section-title">Tappe ({{ route.waypoints|length }})</h6>
   <div class="waypoint-steps mb-3">
     {% for wp in route.waypoints %}
     <div class="wp-step">
@@ -65,17 +137,17 @@
   </div>
   {% endif %}
 
-  <!-- Action buttons -->
+  <!-- Actions -->
   <div class="d-flex gap-2 mb-4">
-    <a href="{{ url_for('navigate', route_id=route.id) }}" class="btn btn-success flex-grow-1">
+    <a href="{{ url_for('navigate', route_id=route.id) }}" class="btn btn-success flex-grow-1 fw-semibold">
       <i class="bi bi-compass-fill me-1"></i>Naviga
     </a>
-    <a href="{{ url_for('map_view', route_id=route.id) }}" class="btn btn-outline-secondary">
+    <a href="{{ url_for('map_view', route_id=route.id) }}" class="btn btn-outline-secondary" title="Modifica">
       <i class="bi bi-pencil"></i>
     </a>
     <form method="POST" action="{{ url_for('delete_route', route_id=route.id) }}"
           onsubmit="return confirm('Eliminare questo percorso?')">
-      <button type="submit" class="btn btn-outline-danger"><i class="bi bi-trash"></i></button>
+      <button type="submit" class="btn btn-outline-danger" title="Elimina"><i class="bi bi-trash"></i></button>
     </form>
   </div>
 
@@ -88,13 +160,12 @@
           <div class="col-6">
             <label class="form-label small">Data</label>
             <input type="date" name="date" class="form-control form-control-sm"
-                   value="{{ now.strftime('%Y-%m-%d') if now else '' }}"
-                   max="{{ now.strftime('%Y-%m-%d') if now else '' }}">
+                   max="{{ now.strftime('%Y-%m-%d') }}">
           </div>
           <div class="col-6">
             <label class="form-label small">Durata (min)</label>
             <input type="number" name="duration_min" class="form-control form-control-sm"
-                   placeholder="{{ route.duration_min|int }}" min="1" max="1440">
+                   placeholder="{{ route.duration_min|int }}" min="1" max="2880">
           </div>
           <div class="col-12">
             <label class="form-label small">Valutazione</label>
@@ -106,9 +177,8 @@
             </select>
           </div>
           <div class="col-12">
-            <label class="form-label small">Note</label>
             <textarea name="notes" class="form-control form-control-sm" rows="2"
-                      placeholder="Com'è andata?"></textarea>
+                      placeholder="Note, condizioni meteo, difficoltà riscontrate…"></textarea>
           </div>
         </div>
         <button type="submit" class="btn btn-success btn-sm w-100 mt-2">
@@ -118,10 +188,10 @@
     </div>
   </div>
 
-  <!-- Past logs -->
+  <!-- History -->
   {% if logs %}
   <h6 class="section-title">Storico uscite ({{ logs|length }})</h6>
-  <div class="d-flex flex-column gap-2">
+  <div class="d-flex flex-column gap-2 mb-3">
     {% for log in logs %}
     <div class="card border-0 shadow-sm">
       <div class="card-body p-3">
@@ -147,46 +217,40 @@
 
 </div>
 
-<script>
-const ROUTE = {{ route.to_dict()|tojson }};
-</script>
+<script>const ROUTE = {{ route.to_dict()|tojson }};</script>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function() {
-  const map = L.map('detail-map', {zoomControl: true, attributionControl: true});
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
+  const map = L.map('detail-map', { zoomControl: true, scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenTopoMap', maxZoom: 17
   }).addTo(map);
 
   const waypoints = ROUTE.waypoints || [];
-  const geometry = ROUTE.geometry;
+  const geometry  = ROUTE.geometry;
 
   if (geometry) {
     const layer = L.geoJSON(geometry, {
-      style: {color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round'}
+      style: { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round' }
     }).addTo(map);
-    map.fitBounds(layer.getBounds(), {padding: [20, 20]});
+    map.fitBounds(layer.getBounds(), { padding: [20, 20] });
   }
 
   waypoints.forEach((wp, i) => {
-    const isStart = i === 0, isEnd = i === waypoints.length - 1;
+    const isStart = i === 0, isEnd = i === waypoints.length - 1 && i > 0;
     const color = isStart ? '#198754' : isEnd ? '#dc3545' : '#0d6efd';
     L.circleMarker([wp.lat, wp.lng], {
       radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 1
     }).addTo(map).bindPopup(`<b>${wp.name || 'Punto ' + (i+1)}</b>`);
   });
 
+  if (!geometry && !waypoints.length) map.setView([45.8, 10.0], 9);
   if (!geometry && waypoints.length) {
-    const group = L.featureGroup(
-      waypoints.map(wp => L.circleMarker([wp.lat, wp.lng]))
-    );
-    map.fitBounds(group.getBounds(), {padding: [30, 30]});
-  }
-  if (!geometry && !waypoints.length) {
-    map.setView([45.5, 9.2], 9);
+    map.fitBounds(L.featureGroup(waypoints.map(wp => L.circleMarker([wp.lat, wp.lng]))).getBounds(),
+                  { padding: [30, 30] });
   }
 })();
 </script>

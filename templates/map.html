@@ -4,12 +4,12 @@
 {% block head %}
 <style>
   .main { display:flex; flex-direction:column; height:calc(100vh - 56px - 60px); }
-  #map { flex: 0 0 55vh; min-height: 220px; }
+  #map { flex: 0 0 52vh; min-height: 200px; }
   #panel { flex: 1; overflow-y: auto; background: #fff; }
   @media (min-width: 768px) {
     .main { flex-direction: row; height: calc(100vh - 56px - 60px); }
     #map { flex: 1; height: 100%; }
-    #panel { flex: 0 0 340px; height: 100%; border-left: 1px solid #dee2e6; }
+    #panel { flex: 0 0 360px; height: 100%; border-left: 1px solid #dee2e6; }
   }
 </style>
 {% endblock %}
@@ -20,45 +20,51 @@
   <!-- MAP -->
   <div id="map"></div>
 
-  <!-- CONTROL PANEL -->
+  <!-- PANEL -->
   <div id="panel" class="d-flex flex-column">
 
     <!-- Search -->
-    <div class="p-3 border-bottom">
+    <div class="p-3 border-bottom position-relative">
       <div class="input-group input-group-sm">
         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-        <input type="text" id="search-input" class="form-control" placeholder="Cerca luogo o montagna…">
-        <button class="btn btn-outline-secondary" id="search-btn" type="button">Vai</button>
+        <input type="text" id="search-input" class="form-control" placeholder="Cerca luogo, vetta, rifugio…">
+        <button class="btn btn-outline-secondary" id="search-btn">Vai</button>
       </div>
-      <div id="search-results" class="list-group mt-1 shadow-sm" style="display:none;position:absolute;z-index:9999;width:calc(100% - 2rem)"></div>
+      <div id="search-results" class="list-group mt-1 shadow-sm"
+           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999"></div>
     </div>
 
     <!-- Mode buttons -->
     <div class="d-flex gap-2 px-3 py-2 border-bottom bg-light">
-      <button id="btn-add-mode" class="btn btn-sm btn-success active-mode" title="Aggiungi waypoint">
-        <i class="bi bi-plus-circle me-1"></i>Aggiungi punto
+      <button id="btn-undo" class="btn btn-sm btn-outline-secondary" disabled>
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Ultimo
       </button>
-      <button id="btn-undo" class="btn btn-sm btn-outline-secondary ms-auto" title="Rimuovi ultimo" disabled>
-        <i class="bi bi-arrow-counterclockwise"></i>
-      </button>
-      <button id="btn-clear" class="btn btn-sm btn-outline-danger" title="Azzera" disabled>
-        <i class="bi bi-trash"></i>
+      <button id="btn-clear" class="btn btn-sm btn-outline-danger ms-auto" disabled>
+        <i class="bi bi-trash me-1"></i>Azzera
       </button>
     </div>
 
     <!-- Stats bar -->
     <div id="stats-bar" class="px-3 py-2 border-bottom bg-success bg-opacity-10 d-none">
-      <div class="d-flex gap-3 text-success fw-semibold small">
-        <span><i class="bi bi-arrows-expand-vertical me-1"></i><span id="stat-dist">0</span> km</span>
-        <span><i class="bi bi-clock me-1"></i><span id="stat-dur">—</span></span>
-        <span><i class="bi bi-graph-up me-1"></i><span id="stat-elev">—</span> m</span>
+      <div class="d-flex flex-wrap gap-3 text-success fw-semibold small">
+        <span title="Distanza"><i class="bi bi-arrows-expand-vertical me-1"></i><span id="stat-dist">0</span> km</span>
+        <span title="Durata stimata"><i class="bi bi-clock me-1"></i><span id="stat-dur">—</span></span>
+        <span title="Dislivello positivo"><i class="bi bi-graph-up me-1"></i>+<span id="stat-gain">—</span>m</span>
+        <span title="Dislivello negativo" class="text-danger"><i class="bi bi-graph-down me-1"></i>-<span id="stat-loss">—</span>m</span>
+      </div>
+      <div class="d-flex flex-wrap gap-3 mt-1 small">
+        <span class="text-muted" title="Quota max"><i class="bi bi-arrow-up me-1"></i>Max <span id="stat-maxelev">—</span>m</span>
+        <span class="text-muted" title="Quota min"><i class="bi bi-arrow-down me-1"></i>Min <span id="stat-minelev">—</span>m</span>
+        <span id="slope-avg-span" class="fw-semibold" title="Pendenza media">∅ <span id="stat-slope-avg">—</span>%</span>
+        <span id="slope-asc-span" class="text-danger small" title="Pendenza max salita">▲ <span id="stat-slope-asc">—</span>%</span>
+        <span id="slope-desc-span" class="text-primary small" title="Pendenza max discesa">▼ <span id="stat-slope-desc">—</span>%</span>
       </div>
     </div>
 
     <!-- Waypoints list -->
     <div class="px-3 py-2 border-bottom flex-shrink-0">
       <div class="d-flex align-items-center justify-content-between mb-1">
-        <span class="small fw-semibold text-muted">WAYPOINTS (<span id="wp-count">0</span>)</span>
+        <span class="small fw-semibold text-muted">TAPPE (<span id="wp-count">0</span>)</span>
       </div>
       <div id="wp-list" class="wp-list"></div>
       <div id="wp-empty" class="text-muted small py-2">
@@ -66,37 +72,112 @@
       </div>
     </div>
 
-    <!-- Elevation chart -->
-    <div id="elev-panel" class="px-3 py-2 border-bottom d-none">
-      <p class="small fw-semibold text-muted mb-1">PROFILO ALTIMETRICO</p>
-      <canvas id="elev-chart" height="80"></canvas>
+    <!-- Chart tabs -->
+    <div id="chart-panel" class="px-3 pt-2 border-bottom d-none">
+      <div class="d-flex gap-2 mb-1">
+        <button class="btn btn-xs btn-link px-0 fw-semibold active-chart-tab" id="tab-elev" onclick="showTab('elev')">Altimetria</button>
+        <button class="btn btn-xs btn-link px-0 text-muted" id="tab-slope" onclick="showTab('slope')">Pendenza</button>
+      </div>
+      <div id="chart-elev"><canvas id="elev-chart" height="80"></canvas></div>
+      <div id="chart-slope" style="display:none"><canvas id="slope-chart" height="80"></canvas></div>
     </div>
 
     <!-- Save form -->
-    <div class="p-3 mt-auto border-top">
+    <div class="p-3 border-top">
       <form id="save-form">
         <div class="mb-2">
-          <input type="text" id="route-name" class="form-control form-control-sm"
-                 placeholder="Nome del percorso *" required maxlength="200">
+          <input type="text" id="route-name" class="form-control form-control-sm fw-semibold"
+                 placeholder="Nome percorso *" required maxlength="200">
         </div>
         <div class="mb-2">
           <textarea id="route-desc" class="form-control form-control-sm" rows="2"
                     placeholder="Descrizione (opzionale)" maxlength="500"></textarea>
         </div>
-        <div class="mb-3">
-          <select id="route-diff" class="form-select form-select-sm">
-            <option value="easy">Facile</option>
-            <option value="medium" selected>Medio</option>
-            <option value="hard">Difficile</option>
-            <option value="expert">Esperto</option>
+
+        <!-- Row: trail type + route shape -->
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Scala CAI</label>
+            <select id="route-trail-type" class="form-select form-select-sm">
+              <option value="T">T — Turistico</option>
+              <option value="E" selected>E — Escursionistico</option>
+              <option value="EE">EE — Escursionisti Esperti</option>
+              <option value="EEA">EEA — Ferrata / Attrezzato</option>
+              <option value="F">F — Facile (alpinismo)</option>
+              <option value="PD">PD — Poco Difficile</option>
+              <option value="AD">AD — Abbastanza Difficile</option>
+              <option value="D">D — Difficile</option>
+              <option value="TD">TD — Molto Difficile</option>
+              <option value="ED">ED — Estremo</option>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Tipo</label>
+            <select id="route-type-tag" class="form-select form-select-sm">
+              <option value="punto_punto">Punto a punto</option>
+              <option value="anello">Anello</option>
+              <option value="andata_ritorno">Andata e ritorno</option>
+              <option value="multiday">Multi-giorno</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row: surface + difficulty -->
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie</label>
+            <select id="route-surface" class="form-select form-select-sm">
+              <option value="sentiero">Sentiero segnalato</option>
+              <option value="sterrato">Sterrato / mulattiera</option>
+              <option value="roccioso">Roccioso</option>
+              <option value="neve">Neve / ghiacciaio</option>
+              <option value="misto">Misto</option>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Difficoltà</label>
+            <select id="route-diff" class="form-select form-select-sm">
+              <option value="easy">Facile</option>
+              <option value="medium" selected>Medio</option>
+              <option value="hard">Difficile</option>
+              <option value="expert">Esperto</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ferrata grade (shown only when EEA) -->
+        <div id="ferrata-row" class="mb-2 d-none">
+          <label class="form-label form-label-sm mb-1 fw-semibold small">Grado ferrata</label>
+          <select id="route-ferrata-grade" class="form-select form-select-sm">
+            <option value="">— seleziona grado —</option>
+            <option value="F">F — Facile</option>
+            <option value="PD">PD — Poco Difficile</option>
+            <option value="AD">AD — Abbastanza Difficile</option>
+            <option value="D">D — Difficile</option>
+            <option value="TD">TD — Molto Difficile</option>
+            <option value="ED">ED — Estremamente Difficile</option>
           </select>
         </div>
-        <button type="submit" id="btn-save" class="btn btn-success w-100" disabled>
+
+        <!-- Hazards -->
+        <div class="mb-3">
+          <label class="form-label form-label-sm mb-1 fw-semibold small">Pericolosità / caratteristiche</label>
+          <div class="hazard-check-grid">
+            {% for key, (icon, color, label) in HAZARD_META.items() %}
+            <label class="hazard-check-item">
+              <input type="checkbox" class="hazard-cb" value="{{ key }}">
+              <span><i class="bi {{ icon }} text-{{ color }}"></i> {{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button type="submit" id="btn-save" class="btn btn-success w-100 fw-semibold" disabled>
           <i class="bi bi-floppy me-1"></i>Salva percorso
         </button>
         {% if route %}
-        <p class="text-muted text-center small mt-1">
-          Stai modificando: <strong>{{ route.name }}</strong>
+        <p class="text-muted text-center small mt-1 mb-0">
+          Modifica: <strong>{{ route.name }}</strong>
         </p>
         {% endif %}
       </form>
@@ -105,14 +186,27 @@
   </div>
 </div>
 
-<!-- Preload existing route if any -->
 {% if route %}
-<script>
-  window.PRELOAD_ROUTE = {{ route.to_dict()|tojson }};
-</script>
+<script>window.PRELOAD_ROUTE = {{ route.to_dict()|tojson }};</script>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script>
+// Show/hide ferrata grade selector
+document.getElementById('route-trail-type').addEventListener('change', function() {
+  document.getElementById('ferrata-row').classList.toggle('d-none', this.value !== 'EEA');
+});
+
+// Chart tab toggle
+function showTab(tab) {
+  document.getElementById('chart-elev').style.display = tab === 'elev' ? '' : 'none';
+  document.getElementById('chart-slope').style.display = tab === 'slope' ? '' : 'none';
+  document.getElementById('tab-elev').classList.toggle('active-chart-tab', tab === 'elev');
+  document.getElementById('tab-slope').classList.toggle('active-chart-tab', tab === 'slope');
+  document.getElementById('tab-elev').classList.toggle('text-muted', tab !== 'elev');
+  document.getElementById('tab-slope').classList.toggle('text-muted', tab === 'elev');
+}
+</script>
 {% endblock %}

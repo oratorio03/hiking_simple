@@ -1,15 +1,20 @@
-// ── Constants ────────────────────────────────────────────────────────────
-const OSRM    = 'https://router.project-osrm.org/route/v1/foot';
-const NOMIN   = 'https://nominatim.openstreetmap.org';
+// ── Constants ─────────────────────────────────────────────────────────────
+const OSRM     = 'https://router.project-osrm.org/route/v1/foot';
+const NOMIN    = 'https://nominatim.openstreetmap.org';
 const TOPO_API = 'https://api.opentopodata.org/v1/srtm30m';
 
-// ── State ────────────────────────────────────────────────────────────────
-let map, routeLayer, elevChart;
-let waypoints = [];   // [{id, lat, lng, name, marker}]
+// ── State ─────────────────────────────────────────────────────────────────
+let map, routeLayer, elevChart, slopeChart;
+let waypoints = [];
 let routeGeometry = null;
-let routeStats = { distance: 0, duration: 0, elevGain: 0 };
+let routeStats = {
+  distance: 0, duration: 0,
+  elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
+  avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
+  elevSeries: [], slopeSeries: []
+};
 
-// ── Init ─────────────────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initMap();
   bindControls();
@@ -18,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initMap() {
   const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
     maxZoom: 19
   });
   const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -30,36 +35,29 @@ function initMap() {
     maxZoom: 20
   });
 
-  map = L.map('map', { layers: [osmLayer], zoomControl: false });
+  map = L.map('map', { layers: [topoLayer], zoomControl: false });
   L.control.zoom({ position: 'topright' }).addTo(map);
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
   L.control.layers(
-    { 'Mappa': osmLayer, 'Topografica': topoLayer, 'CyclOSM': cyclosm },
-    {},
-    { position: 'topright', collapsed: true }
+    { 'Topografica': topoLayer, 'Standard OSM': osmLayer, 'CyclOSM': cyclosm },
+    {}, { position: 'topright', collapsed: true }
   ).addTo(map);
 
-  // Start near user location
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      p => map.setView([p.coords.latitude, p.coords.longitude], 13),
-      () => map.setView([45.8, 10.0], 9)
-    );
-  } else {
-    map.setView([45.8, 10.0], 9);
-  }
+  navigator.geolocation?.getCurrentPosition(
+    p => map.setView([p.coords.latitude, p.coords.longitude], 13),
+    () => map.setView([45.8, 10.0], 9)
+  );
 
   map.on('click', e => addWaypoint(e.latlng.lat, e.latlng.lng));
 }
 
-// ── Waypoints ────────────────────────────────────────────────────────────
+// ── Waypoints ─────────────────────────────────────────────────────────────
 
 async function addWaypoint(lat, lng, name = null) {
   if (!name) name = await reverseGeocode(lat, lng);
 
   const id = Date.now() + Math.random();
-  const idx = waypoints.length;
-  const marker = makeMarker(lat, lng, idx, name);
+  const marker = makeMarker(lat, lng, waypoints.length, name);
   marker.addTo(map);
 
   const wp = { id, lat, lng, name, marker };
@@ -67,8 +65,7 @@ async function addWaypoint(lat, lng, name = null) {
 
   marker.on('dragend', async () => {
     const pos = marker.getLatLng();
-    wp.lat = pos.lat;
-    wp.lng = pos.lng;
+    wp.lat = pos.lat; wp.lng = pos.lng;
     wp.name = await reverseGeocode(pos.lat, pos.lng);
     marker.setPopupContent(wp.name);
     refreshMarkerIcons();
@@ -101,9 +98,7 @@ function clearAll() {
 
 function undoLast() {
   if (!waypoints.length) return;
-  const last = waypoints[waypoints.length - 1];
-  map.removeLayer(last.marker);
-  waypoints.pop();
+  map.removeLayer(waypoints.pop().marker);
   refreshMarkerIcons();
   updateWpList();
   if (waypoints.length >= 2) calcRoute();
@@ -111,48 +106,29 @@ function undoLast() {
 }
 
 function makeMarker(lat, lng, idx, name) {
-  const isStart = idx === 0;
-  const color = isStart ? '#198754' : '#0d6efd';
+  const colors = ['#198754', '#0d6efd', '#0d6efd', '#0d6efd', '#dc3545'];
+  const color = idx === 0 ? '#198754' : '#0d6efd';
   const icon = L.divIcon({
     html: `<div class="wp-marker" style="background:${color}">${idx + 1}</div>`,
-    className: '',
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16]
+    className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
   });
   return L.marker([lat, lng], { draggable: true, icon }).bindPopup(name || '');
 }
 
 function refreshMarkerIcons() {
   waypoints.forEach((wp, i) => {
-    const isStart = i === 0;
-    const color = isStart ? '#198754' : '#0d6efd';
+    const isEnd = i === waypoints.length - 1 && i > 0;
+    const color = i === 0 ? '#198754' : isEnd ? '#dc3545' : '#0d6efd';
     const icon = L.divIcon({
       html: `<div class="wp-marker" style="background:${color}">${i + 1}</div>`,
-      className: '',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-      popupAnchor: [0, -16]
+      className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
     });
     wp.marker.setIcon(icon);
     wp.marker.setPopupContent(wp.name || '');
   });
-
-  // Color last waypoint red if multiple
-  if (waypoints.length > 1) {
-    const last = waypoints[waypoints.length - 1];
-    const icon = L.divIcon({
-      html: `<div class="wp-marker" style="background:#dc3545">${waypoints.length}</div>`,
-      className: '',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-      popupAnchor: [0, -16]
-    });
-    last.marker.setIcon(icon);
-  }
 }
 
-// ── Routing ──────────────────────────────────────────────────────────────
+// ── Routing ───────────────────────────────────────────────────────────────
 
 async function calcRoute() {
   if (waypoints.length < 2) return;
@@ -187,50 +163,81 @@ function drawRoute() {
 function clearRoute() {
   if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
   routeGeometry = null;
-  routeStats = { distance: 0, duration: 0, elevGain: 0 };
+  routeStats = {
+    distance: 0, duration: 0,
+    elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
+    avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
+    elevSeries: [], slopeSeries: []
+  };
   document.getElementById('stats-bar')?.classList.add('d-none');
-  document.getElementById('elev-panel')?.classList.add('d-none');
+  document.getElementById('chart-panel')?.classList.add('d-none');
   updateBtnState();
 }
 
-// ── Elevation ────────────────────────────────────────────────────────────
+// ── Elevation + slope ─────────────────────────────────────────────────────
 
 async function fetchElevation() {
   if (!routeGeometry) return;
   const coords = routeGeometry.coordinates;
-  const step = Math.max(1, Math.floor(coords.length / 60));
+  const step = Math.max(1, Math.floor(coords.length / 80));
   const sampled = coords.filter((_, i) => i % step === 0);
+  // Ensure last point is included
+  if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
+    sampled.push(coords[coords.length - 1]);
+  }
 
   const locations = sampled.map(c => `${c[1]},${c[0]}`).join('|');
-
   try {
     const res = await fetch(`${TOPO_API}?locations=${locations}`);
     const data = await res.json();
     if (data.status !== 'OK') return;
 
     const elevs = data.results.map(r => r.elevation);
-    computeElevGain(elevs);
+    processElevation(elevs);
     drawElevChart(elevs);
+    drawSlopeChart(routeStats.slopeSeries);
     updateStatsBar();
+
+    document.getElementById('chart-panel')?.classList.remove('d-none');
   } catch (err) {
     console.warn('Elevation API unavailable');
   }
 }
 
-function computeElevGain(elevs) {
-  let gain = 0;
+function processElevation(elevs) {
+  // Elevation stats
+  routeStats.elevSeries = elevs;
+  routeStats.maxElev = Math.round(Math.max(...elevs));
+  routeStats.minElev = Math.round(Math.min(...elevs));
+
+  let gain = 0, loss = 0;
   for (let i = 1; i < elevs.length; i++) {
     const diff = elevs[i] - elevs[i - 1];
-    if (diff > 0) gain += diff;
+    if (diff > 0) gain += diff; else loss += Math.abs(diff);
   }
   routeStats.elevGain = Math.round(gain);
+  routeStats.elevLoss = Math.round(loss);
+
+  // Slope stats (% gradient per segment)
+  const segDistM = (routeStats.distance * 1000) / (elevs.length - 1);
+  const slopes = [];
+  for (let i = 1; i < elevs.length; i++) {
+    const slope = ((elevs[i] - elevs[i - 1]) / segDistM) * 100;
+    slopes.push(Math.round(slope * 10) / 10);
+  }
+  routeStats.slopeSeries = slopes;
+
+  const absSlopes = slopes.map(Math.abs);
+  routeStats.avgSlope = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
+  routeStats.maxSlopeAsc = Math.max(...slopes);
+  routeStats.maxSlopeDesc = Math.min(...slopes);
 }
 
-function drawElevChart(elevs) {
-  const panel = document.getElementById('elev-panel');
-  const canvas = document.getElementById('elev-chart');
-  if (!panel || !canvas) return;
+// ── Charts ────────────────────────────────────────────────────────────────
 
+function drawElevChart(elevs) {
+  const canvas = document.getElementById('elev-chart');
+  if (!canvas) return;
   if (elevChart) elevChart.destroy();
 
   const labels = elevs.map((_, i) =>
@@ -253,32 +260,102 @@ function drawElevChart(elevs) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => `${Math.round(ctx.parsed.y)} m` }
-      }},
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => `${Math.round(ctx.parsed.y)} m s.l.m.` } }
+      },
       scales: {
         x: { title: { display: true, text: 'km' }, ticks: { maxTicksLimit: 5 } },
-        y: { title: { display: true, text: 'm s.l.m.' } }
+        y: { title: { display: true, text: 'm' } }
       }
     }
   });
-  panel.classList.remove('d-none');
+}
+
+function drawSlopeChart(slopes) {
+  const canvas = document.getElementById('slope-chart');
+  if (!canvas || !slopes.length) return;
+  if (slopeChart) slopeChart.destroy();
+
+  const colors = slopes.map(s => {
+    const abs = Math.abs(s);
+    if (abs < 10) return s >= 0 ? 'rgba(25,135,84,.75)' : 'rgba(13,110,253,.75)';
+    if (abs < 20) return 'rgba(255,193,7,.85)';
+    if (abs < 30) return 'rgba(253,126,20,.9)';
+    return 'rgba(220,53,69,.9)';
+  });
+
+  slopeChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: slopes.map(() => ''),
+      datasets: [{
+        data: slopes,
+        backgroundColor: colors,
+        borderWidth: 0,
+        barPercentage: 1.0,
+        categoryPercentage: 1.0
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              const abs = Math.abs(v);
+              const label = abs < 10 ? 'dolce' : abs < 20 ? 'moderata' : abs < 30 ? 'ripida' : 'molto ripida';
+              return `${v > 0 ? '+' : ''}${v.toFixed(1)}%  (${label})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: {
+          title: { display: true, text: 'Pendenza (%)' },
+          ticks: { callback: v => `${v > 0 ? '+' : ''}${v}%` }
+        }
+      }
+    }
+  });
 }
 
 // ── Stats bar ─────────────────────────────────────────────────────────────
 
 function updateStatsBar() {
-  const bar = document.getElementById('stats-bar');
+  const el = id => document.getElementById(id);
+  const bar = el('stats-bar');
   if (!bar) return;
 
-  document.getElementById('stat-dist').textContent =
-    routeStats.distance.toFixed(2);
-  document.getElementById('stat-dur').textContent =
-    fmtDuration(routeStats.duration);
-  document.getElementById('stat-elev').textContent =
-    routeStats.elevGain > 0 ? `+${routeStats.elevGain}` : '—';
+  el('stat-dist').textContent = routeStats.distance.toFixed(2);
+  el('stat-dur').textContent = fmtDuration(routeStats.duration);
+  el('stat-gain').textContent = routeStats.elevGain > 0 ? routeStats.elevGain : '—';
+  el('stat-loss').textContent = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
+  el('stat-maxelev').textContent = routeStats.maxElev ?? '—';
+  el('stat-minelev').textContent = routeStats.minElev ?? '—';
+
+  if (routeStats.avgSlope !== null) {
+    el('stat-slope-avg').textContent = routeStats.avgSlope.toFixed(1);
+    el('stat-slope-asc').textContent = `+${routeStats.maxSlopeAsc.toFixed(1)}`;
+    el('stat-slope-desc').textContent = `${routeStats.maxSlopeDesc.toFixed(1)}`;
+
+    // Color avg slope
+    const avgEl = el('slope-avg-span');
+    avgEl.className = `fw-semibold text-${slopeColorClass(routeStats.avgSlope)}`;
+  }
 
   bar.classList.remove('d-none');
+}
+
+function slopeColorClass(pct) {
+  const v = Math.abs(pct || 0);
+  if (v < 10) return 'success';
+  if (v < 20) return 'warning';
+  if (v < 30) return 'orange';
+  return 'danger';
 }
 
 function fmtDuration(min) {
@@ -296,7 +373,6 @@ function updateWpList() {
   if (!list) return;
 
   count.textContent = waypoints.length;
-
   if (!waypoints.length) {
     list.innerHTML = '';
     empty.style.display = '';
@@ -305,12 +381,12 @@ function updateWpList() {
   empty.style.display = 'none';
 
   list.innerHTML = waypoints.map((wp, i) => {
-    const isStart = i === 0, isEnd = i === waypoints.length - 1 && i > 0;
-    const dotClass = isStart ? 'wp-dot-start' : isEnd ? 'wp-dot-end' : 'wp-dot-mid';
+    const isEnd = i === waypoints.length - 1 && i > 0;
+    const dotClass = i === 0 ? 'wp-dot-start' : isEnd ? 'wp-dot-end' : 'wp-dot-mid';
     return `
       <div class="wp-list-row">
         <span class="wp-dot ${dotClass}">${i + 1}</span>
-        <span class="wp-list-name">${wp.name}</span>
+        <span class="wp-list-name">${escapeHtml(wp.name)}</span>
         <button class="wp-del-btn" onclick="removeWaypoint(${wp.id})">
           <i class="bi bi-x"></i>
         </button>
@@ -322,10 +398,9 @@ function updateWpList() {
 
 function updateBtnState() {
   const hasWps = waypoints.length > 0;
-  const hasRoute = routeGeometry !== null;
   document.getElementById('btn-undo').disabled = !hasWps;
   document.getElementById('btn-clear').disabled = !hasWps;
-  document.getElementById('btn-save').disabled = !hasRoute;
+  document.getElementById('btn-save').disabled = routeGeometry === null;
 }
 
 // ── Search ────────────────────────────────────────────────────────────────
@@ -334,34 +409,30 @@ async function search(query) {
   if (!query.trim()) return;
   try {
     const res = await fetch(
-      `${NOMIN}/search?q=${encodeURIComponent(query)}&format=json&limit=5&accept-language=it`,
+      `${NOMIN}/search?q=${encodeURIComponent(query)}&format=json&limit=6&accept-language=it`,
       { headers: { 'User-Agent': 'HikePath/1.0' } }
     );
-    const results = await res.json();
-    showSearchResults(results);
-  } catch (err) {
-    console.error('Search error', err);
-  }
+    showSearchResults(await res.json());
+  } catch (err) { console.error('Search error', err); }
 }
 
 function showSearchResults(results) {
   const box = document.getElementById('search-results');
   if (!results.length) { box.style.display = 'none'; return; }
-
-  box.innerHTML = results.map(r => `
-    <button class="list-group-item list-group-item-action text-start small py-2"
-            onclick="selectSearchResult(${r.lat},${r.lon},'${escapeHtml(r.display_name.split(',')[0])}')">
-      <i class="bi bi-geo-alt-fill text-success me-1"></i>
-      ${escapeHtml(r.display_name.split(',').slice(0, 2).join(', '))}
-    </button>`
-  ).join('');
+  box.innerHTML = results.map(r => {
+    const name = r.display_name.split(',').slice(0, 2).join(', ');
+    return `<button class="list-group-item list-group-item-action text-start small py-2"
+      onclick="selectResult(${r.lat},${r.lon},'${escapeHtml(r.display_name.split(',')[0])}')">
+      <i class="bi bi-geo-alt-fill text-success me-1"></i>${escapeHtml(name)}
+    </button>`;
+  }).join('');
   box.style.display = 'block';
 }
 
-function selectSearchResult(lat, lon, name) {
+function selectResult(lat, lon, name) {
   document.getElementById('search-results').style.display = 'none';
   document.getElementById('search-input').value = name;
-  map.setView([lat, lon], 14);
+  map.setView([parseFloat(lat), parseFloat(lon)], 14);
   addWaypoint(parseFloat(lat), parseFloat(lon), name);
 }
 
@@ -380,7 +451,7 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
-// ── Save ─────────────────────────────────────────────────────────────────
+// ── Save ──────────────────────────────────────────────────────────────────
 
 document.getElementById('save-form')?.addEventListener('submit', async e => {
   e.preventDefault();
@@ -388,15 +459,30 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvo…';
 
+  const hazards = [...document.querySelectorAll('.hazard-cb:checked')].map(cb => cb.value);
+
   const payload = {
-    name: document.getElementById('route-name').value.trim(),
-    description: document.getElementById('route-desc').value.trim(),
-    difficulty: document.getElementById('route-diff').value,
-    distance_km: routeStats.distance,
-    duration_min: routeStats.duration,
+    name:             document.getElementById('route-name').value.trim(),
+    description:      document.getElementById('route-desc').value.trim(),
+    difficulty:       document.getElementById('route-diff').value,
+    trail_type:       document.getElementById('route-trail-type').value,
+    route_type_tag:   document.getElementById('route-type-tag').value,
+    surface:          document.getElementById('route-surface').value,
+    ferrata_grade:    document.getElementById('route-ferrata-grade')?.value || null,
+    hazards,
+    distance_km:      routeStats.distance,
+    duration_min:     routeStats.duration,
     elevation_gain_m: routeStats.elevGain,
+    elevation_loss_m: routeStats.elevLoss,
+    max_elevation_m:  routeStats.maxElev,
+    min_elevation_m:  routeStats.minElev,
+    avg_slope_pct:    routeStats.avgSlope,
+    max_slope_asc_pct:  routeStats.maxSlopeAsc !== null
+                        ? Math.round(routeStats.maxSlopeAsc * 10) / 10 : null,
+    max_slope_desc_pct: routeStats.maxSlopeDesc !== null
+                        ? Math.round(routeStats.maxSlopeDesc * 10) / 10 : null,
     waypoints: waypoints.map(({ lat, lng, name }) => ({ lat, lng, name })),
-    geometry: routeGeometry
+    geometry: routeGeometry,
   };
 
   try {
@@ -409,11 +495,11 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
     if (res.ok) {
       window.location.href = `/routes/${data.id}`;
     } else {
-      alert('Errore nel salvataggio: ' + (data.error || 'sconosciuto'));
+      alert('Errore: ' + (data.error || 'sconosciuto'));
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-floppy me-1"></i>Salva percorso';
     }
-  } catch (err) {
+  } catch {
     alert('Errore di rete.');
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-floppy me-1"></i>Salva percorso';
@@ -426,40 +512,43 @@ async function loadExistingRoute(route) {
   document.getElementById('route-name').value = route.name || '';
   document.getElementById('route-desc').value = route.description || '';
   document.getElementById('route-diff').value = route.difficulty || 'medium';
-
+  document.getElementById('route-trail-type').value = route.trail_type || 'E';
+  document.getElementById('route-type-tag').value = route.route_type_tag || 'punto_punto';
+  document.getElementById('route-surface').value = route.surface || 'sentiero';
+  if (route.ferrata_grade) {
+    document.getElementById('route-ferrata-grade').value = route.ferrata_grade;
+    document.getElementById('ferrata-row').classList.remove('d-none');
+  }
+  (route.hazards || []).forEach(h => {
+    const cb = document.querySelector(`.hazard-cb[value="${h}"]`);
+    if (cb) cb.checked = true;
+  });
   for (const wp of (route.waypoints || [])) {
     await addWaypoint(wp.lat, wp.lng, wp.name);
   }
 }
 
-// ── Controls binding ──────────────────────────────────────────────────────
+// ── Controls ──────────────────────────────────────────────────────────────
 
 function bindControls() {
   document.getElementById('btn-undo')?.addEventListener('click', undoLast);
   document.getElementById('btn-clear')?.addEventListener('click', () => {
     if (confirm('Rimuovere tutti i waypoint?')) clearAll();
   });
-
   const searchInput = document.getElementById('search-input');
-  const searchBtn = document.getElementById('search-btn');
-
-  searchBtn?.addEventListener('click', () => search(searchInput.value));
-  searchInput?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') search(searchInput.value);
-  });
-
-  // Close search results on outside click
+  document.getElementById('search-btn')?.addEventListener('click', () => search(searchInput.value));
+  searchInput?.addEventListener('keydown', e => { if (e.key === 'Enter') search(searchInput.value); });
   document.addEventListener('click', e => {
-    if (!e.target.closest('#search-input') && !e.target.closest('#search-results')) {
+    if (!e.target.closest('#search-input') && !e.target.closest('#search-results'))
       document.getElementById('search-results').style.display = 'none';
-    }
   });
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────
 
 function escapeHtml(str) {
-  return str.replace(/[&<>"']/g, c =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
   );
 }

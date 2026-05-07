@@ -182,5 +182,78 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   border-color: #198754; box-shadow: 0 0 0 .2rem rgba(25,135,84,.2);
 }
 
+/* ── Trail type badges ─────────────────────────────────────────────── */
+.badge-trail {
+  background: linear-gradient(135deg, #1a2e1a, #2d5a27);
+  color: #fff; font-size: .72rem; padding: 3px 9px; border-radius: 999px;
+}
+.badge-trail-sm {
+  background: #1a2e1a; color: #fff;
+  font-size: .65rem; padding: 1px 7px; border-radius: 999px;
+}
+
+/* ── Hazard pills ──────────────────────────────────────────────────── */
+.hazard-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.hazard-pill {
+  display: inline-flex; align-items: center;
+  background: #fff; border: 1px solid currentColor;
+  border-radius: 999px; padding: 2px 10px;
+  font-size: .72rem; font-weight: 600; opacity: .85;
+}
+
+/* ── Hazard checkboxes in form ─────────────────────────────────────── */
+.hazard-check-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+}
+.hazard-check-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .78rem; cursor: pointer; padding: 4px 6px;
+  border: 1px solid #dee2e6; border-radius: 6px; background: #f8f9fa;
+  transition: background .15s;
+}
+.hazard-check-item:has(input:checked) {
+  background: #fff; border-color: #198754;
+}
+.hazard-check-item input { display: none; }
+
+/* ── Slope / elevation stats ───────────────────────────────────────── */
+.slope-card {
+  background: #fff; border-radius: 12px;
+  padding: 12px 14px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+}
+.slope-card-title {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  color: #6c757d; letter-spacing: .05em; margin-bottom: 10px;
+}
+.slope-stats-row {
+  display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between;
+}
+.slope-stat { text-align: center; flex: 1; min-width: 60px; }
+.slope-stat-val { font-size: 1.05rem; font-weight: 700; line-height: 1.1; }
+.slope-stat-label { font-size: .65rem; color: #6c757d; margin-top: 2px; }
+.slope-legend {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  font-size: .65rem; color: #6c757d; border-top: 1px solid #f0f0f0;
+  padding-top: 8px; margin-top: 4px;
+}
+
+/* ── Detail stats grid ─────────────────────────────────────────────── */
+.detail-stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.dstat {
+  background: #fff; border-radius: 10px; padding: 8px 4px;
+  text-align: center; box-shadow: 0 1px 5px rgba(0,0,0,.06);
+}
+.dstat i { font-size: 1.1rem; display: block; margin-bottom: 3px; }
+.dstat-val { font-size: .9rem; font-weight: 700; line-height: 1.1; }
+.dstat-label { font-size: .6rem; color: #6c757d; }
+
+/* ── Chart tab ─────────────────────────────────────────────────────── */
+.active-chart-tab { font-weight: 700 !important; color: #198754 !important; }
+
+/* ── text-orange (Bootstrap doesn't have it) ───────────────────────── */
+.text-orange { color: #fd7e14 !important; }
+
 /* ── Leaflet controls z-index fix ──────────────────────────────────── */
 .leaflet-top, .leaflet-bottom { z-index: 900; }

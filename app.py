@@ -45,6 +45,45 @@ class User(db.Model):
 DIFFICULTY_LABELS = {'easy': 'Facile', 'medium': 'Medio', 'hard': 'Difficile', 'expert': 'Esperto'}
 DIFFICULTY_COLORS = {'easy': 'success', 'medium': 'warning', 'hard': 'orange', 'expert': 'danger'}
 
+TRAIL_TYPE_LABELS = {
+    'T':   'T — Turistico',
+    'E':   'E — Escursionistico',
+    'EE':  'EE — Escursionisti Esperti',
+    'EEA': 'EEA — Ferrata / Attrezzato',
+    'F':   'F — Facile (alpinismo)',
+    'PD':  'PD — Poco Difficile',
+    'AD':  'AD — Abbastanza Difficile',
+    'D':   'D — Difficile',
+    'TD':  'TD — Molto Difficile',
+    'ED':  'ED — Estremo',
+}
+
+ROUTE_TYPE_LABELS = {
+    'punto_punto':    'Punto a punto',
+    'anello':         'Anello',
+    'andata_ritorno': 'Andata e ritorno',
+    'multiday':       'Multi-giorno',
+}
+
+SURFACE_LABELS = {
+    'sentiero':  'Sentiero segnalato',
+    'sterrato':  'Sterrato / mulattiera',
+    'roccioso':  'Roccioso',
+    'neve':      'Neve / ghiacciaio',
+    'misto':     'Misto',
+}
+
+HAZARD_META = {
+    'esposto':  ('bi-exclamation-triangle-fill', 'warning',   'Tratti esposti'),
+    'ferrata':  ('bi-ladder',                    'danger',    'Via ferrata'),
+    'neve':     ('bi-snow2',                     'primary',   'Neve'),
+    'ghiaccio': ('bi-thermometer-snow',          'info',      'Ghiaccio'),
+    'valanghe': ('bi-cloud-snow-fill',           'danger',    'Rischio valanghe'),
+    'fiume':    ('bi-water',                     'primary',   'Guado / fiume'),
+    'tecnico':  ('bi-tools',                     'secondary', 'Terreno tecnico'),
+    'roccia':   ('bi-triangle-fill',             'secondary', 'Roccia'),
+}
+
 
 class Route(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -52,11 +91,25 @@ class Route(db.Model):
     name = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     difficulty = db.Column(db.String(20), default='medium')
+    # Trail metadata
+    trail_type = db.Column(db.String(10), default='E')
+    route_type_tag = db.Column(db.String(20), default='punto_punto')
+    surface = db.Column(db.String(30), default='sentiero')
+    ferrata_grade = db.Column(db.String(20), nullable=True)
+    hazards_json = db.Column(db.Text, default='[]')
+    # Metrics
     distance_km = db.Column(db.Float, default=0.0)
     elevation_gain_m = db.Column(db.Integer, default=0)
+    elevation_loss_m = db.Column(db.Integer, default=0)
+    max_elevation_m = db.Column(db.Integer, nullable=True)
+    min_elevation_m = db.Column(db.Integer, nullable=True)
     duration_min = db.Column(db.Float, default=0.0)
-    waypoints_json = db.Column(db.Text, default='[]')  # [{lat,lng,name}]
-    geometry_json = db.Column(db.Text, nullable=True)  # GeoJSON LineString from OSRM
+    avg_slope_pct = db.Column(db.Float, nullable=True)
+    max_slope_asc_pct = db.Column(db.Float, nullable=True)
+    max_slope_desc_pct = db.Column(db.Float, nullable=True)
+    # Geometry
+    waypoints_json = db.Column(db.Text, default='[]')
+    geometry_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     logs = db.relationship('HikeLog', backref='route', lazy=True, cascade='all, delete-orphan')
@@ -66,12 +119,41 @@ class Route(db.Model):
         return json.loads(self.waypoints_json or '[]')
 
     @property
+    def hazards(self):
+        return json.loads(self.hazards_json or '[]')
+
+    @property
     def difficulty_label(self):
         return DIFFICULTY_LABELS.get(self.difficulty, 'Medio')
 
     @property
     def difficulty_color(self):
         return DIFFICULTY_COLORS.get(self.difficulty, 'warning')
+
+    @property
+    def trail_type_label(self):
+        return TRAIL_TYPE_LABELS.get(self.trail_type, self.trail_type or 'E')
+
+    @property
+    def route_type_label(self):
+        return ROUTE_TYPE_LABELS.get(self.route_type_tag, self.route_type_tag or '—')
+
+    @property
+    def surface_label(self):
+        return SURFACE_LABELS.get(self.surface, self.surface or '—')
+
+    @property
+    def hazard_meta(self):
+        return [(h, HAZARD_META[h]) for h in self.hazards if h in HAZARD_META]
+
+    @staticmethod
+    def slope_color(pct):
+        if pct is None: return 'secondary'
+        v = abs(pct)
+        if v < 10: return 'success'
+        if v < 20: return 'warning'
+        if v < 30: return 'orange'
+        return 'danger'
 
     def duration_str(self):
         m = int(self.duration_min or 0)
@@ -94,9 +176,20 @@ class Route(db.Model):
             'name': self.name,
             'description': self.description or '',
             'difficulty': self.difficulty,
+            'trail_type': self.trail_type,
+            'route_type_tag': self.route_type_tag,
+            'surface': self.surface,
+            'ferrata_grade': self.ferrata_grade,
+            'hazards': self.hazards,
             'distance_km': self.distance_km,
             'elevation_gain_m': self.elevation_gain_m,
+            'elevation_loss_m': self.elevation_loss_m,
+            'max_elevation_m': self.max_elevation_m,
+            'min_elevation_m': self.min_elevation_m,
             'duration_min': self.duration_min,
+            'avg_slope_pct': self.avg_slope_pct,
+            'max_slope_asc_pct': self.max_slope_asc_pct,
+            'max_slope_desc_pct': self.max_slope_desc_pct,
             'waypoints': self.waypoints,
             'geometry': json.loads(self.geometry_json) if self.geometry_json else None,
         }
@@ -131,7 +224,12 @@ def current_user():
 
 @app.context_processor
 def inject_user():
-    return {'current_user': current_user(), 'now': datetime.utcnow()}
+    return {
+        'current_user': current_user(),
+        'now': datetime.utcnow(),
+        'HAZARD_META': HAZARD_META,
+        'TRAIL_TYPE_LABELS': TRAIL_TYPE_LABELS,
+    }
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
@@ -253,14 +351,35 @@ def api_create_route():
     if not data:
         return jsonify({'error': 'No data'}), 400
 
+    def _flt(key, default=None):
+        v = data.get(key)
+        try: return round(float(v), 2) if v is not None else default
+        except (TypeError, ValueError): return default
+
+    def _int(key, default=0):
+        v = data.get(key)
+        try: return int(v) if v is not None else default
+        except (TypeError, ValueError): return default
+
     route = Route(
         user_id=user.id,
         name=data.get('name', '').strip() or 'Percorso senza nome',
         description=data.get('description', '').strip(),
         difficulty=data.get('difficulty', 'medium'),
-        distance_km=round(float(data.get('distance_km', 0)), 2),
-        elevation_gain_m=int(data.get('elevation_gain_m', 0)),
-        duration_min=round(float(data.get('duration_min', 0)), 1),
+        trail_type=data.get('trail_type', 'E'),
+        route_type_tag=data.get('route_type_tag', 'punto_punto'),
+        surface=data.get('surface', 'sentiero'),
+        ferrata_grade=data.get('ferrata_grade') or None,
+        hazards_json=json.dumps(data.get('hazards', [])),
+        distance_km=_flt('distance_km', 0.0),
+        elevation_gain_m=_int('elevation_gain_m'),
+        elevation_loss_m=_int('elevation_loss_m'),
+        max_elevation_m=_int('max_elevation_m') or None,
+        min_elevation_m=_int('min_elevation_m') or None,
+        duration_min=_flt('duration_min', 0.0),
+        avg_slope_pct=_flt('avg_slope_pct'),
+        max_slope_asc_pct=_flt('max_slope_asc_pct'),
+        max_slope_desc_pct=_flt('max_slope_desc_pct'),
         waypoints_json=json.dumps(data.get('waypoints', [])),
         geometry_json=json.dumps(data.get('geometry')) if data.get('geometry') else None,
     )
