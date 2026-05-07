@@ -1,109 +1,75 @@
 {% extends 'base.html' %}
-{% block title %}Home — PredictSport{% endblock %}
-
+{% block title %}Home — HikePath{% endblock %}
 {% block content %}
-<div class="p-3">
+<div class="page-content">
 
-  <!-- Greeting -->
-  <div class="mb-3">
-    <h5 class="fw-bold mb-0">Ciao, {{ current_user.username }} 👋</h5>
-    <p class="text-muted small mb-0">Ecco il riepilogo delle tue attività</p>
-  </div>
-
-  <!-- Stats cards -->
-  <div class="row g-2 mb-3">
-    <div class="col-4">
-      <div class="card border-0 bg-primary text-white text-center py-3 shadow-sm">
-        <div class="fs-4 fw-bold">{{ current_user.predictions_count }}</div>
-        <div class="small opacity-75">Predizioni</div>
-      </div>
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <i class="bi bi-signpost-split-fill text-success"></i>
+      <div class="stat-val">{{ total_routes }}</div>
+      <div class="stat-label">Percorsi</div>
     </div>
-    <div class="col-4">
-      <div class="card border-0 bg-success text-white text-center py-3 shadow-sm">
-        <div class="fs-4 fw-bold">{{ current_user.accuracy }}%</div>
-        <div class="small opacity-75">Accuratezza</div>
-      </div>
+    <div class="stat-card">
+      <i class="bi bi-arrows-expand-vertical text-warning"></i>
+      <div class="stat-val">{{ current_user.total_km }}</div>
+      <div class="stat-label">km pianificati</div>
     </div>
-    <div class="col-4">
-      <div class="card border-0 bg-warning text-white text-center py-3 shadow-sm">
-        <div class="fs-4 fw-bold">#{{ current_user.ranking }}</div>
-        <div class="small opacity-75">Classifica</div>
-      </div>
+    <div class="stat-card">
+      <i class="bi bi-graph-up-arrow text-danger"></i>
+      <div class="stat-val">{{ current_user.total_elevation }}</div>
+      <div class="stat-label">m dislivello</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-check-circle-fill text-primary"></i>
+      <div class="stat-val">{{ current_user.hikes_completed }}</div>
+      <div class="stat-label">Escursioni</div>
     </div>
   </div>
 
-  <!-- Streak badge -->
-  {% if current_user.success_streak > 0 %}
-  <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3">
-    <i class="bi bi-fire fs-5 text-warning"></i>
-    <span><strong>{{ current_user.success_streak }} streak</strong> consecutiva! Continua così!</span>
-  </div>
-  {% endif %}
-
-  <!-- Quick action -->
-  <a href="{{ url_for('new_prediction') }}" class="btn btn-primary w-100 mb-4 fw-semibold">
-    <i class="bi bi-plus-circle me-2"></i>Nuova Predizione
+  <!-- CTA -->
+  <a href="{{ url_for('map_view') }}" class="btn btn-success btn-lg w-100 mb-4">
+    <i class="bi bi-plus-circle me-2"></i>Pianifica nuovo percorso
   </a>
 
-  <!-- Recent predictions -->
-  <h6 class="fw-bold mb-2">Ultime predizioni</h6>
+  <!-- Recent routes -->
   {% if recent %}
-  <div class="list-group shadow-sm mb-4">
-    {% for pred in recent %}
-    <div class="list-group-item list-group-item-action px-3 py-2">
-      <div class="d-flex justify-content-between align-items-start">
-        <div>
-          <div class="fw-semibold small">{{ pred.match }}</div>
-          <div class="text-muted" style="font-size:.8rem">{{ pred.prediction_text }}</div>
+  <h6 class="section-title">Percorsi recenti</h6>
+  <div class="route-list">
+    {% for route in recent %}
+    <a href="{{ url_for('route_detail', route_id=route.id) }}" class="route-card text-decoration-none">
+      <div class="route-card-body">
+        <div class="d-flex align-items-start justify-content-between">
+          <div>
+            <div class="route-name">{{ route.name }}</div>
+            {% if route.description %}
+            <div class="route-desc">{{ route.description[:60] }}{% if route.description|length > 60 %}…{% endif %}</div>
+            {% endif %}
+          </div>
+          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
         </div>
-        {% if pred.result == 'correct' %}
-          <span class="badge bg-success rounded-pill ms-2">✓</span>
-        {% elif pred.result == 'wrong' %}
-          <span class="badge bg-danger rounded-pill ms-2">✗</span>
-        {% else %}
-          <span class="badge bg-secondary rounded-pill ms-2">—</span>
-        {% endif %}
+        <div class="route-meta">
+          <span><i class="bi bi-arrows-expand-vertical"></i> {{ "%.1f"|format(route.distance_km) }} km</span>
+          <span><i class="bi bi-clock"></i> {{ route.duration_str() }}</span>
+          {% if route.elevation_gain_m %}
+          <span><i class="bi bi-graph-up"></i> {{ route.elevation_gain_m }}m</span>
+          {% endif %}
+          <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
+        </div>
       </div>
-    </div>
+    </a>
     {% endfor %}
   </div>
+  <a href="{{ url_for('routes_list') }}" class="btn btn-outline-secondary w-100 mt-2">
+    Tutti i percorsi <i class="bi bi-arrow-right ms-1"></i>
+  </a>
   {% else %}
-  <div class="text-center text-muted py-4">
-    <i class="bi bi-lightning fs-2 d-block mb-2"></i>
-    <small>Nessuna predizione ancora. Inizia ora!</small>
+  <div class="empty-state">
+    <i class="bi bi-map text-success"></i>
+    <p>Nessun percorso ancora.<br>Inizia aprendo la mappa!</p>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Apri la mappa</a>
   </div>
   {% endif %}
-
-  <!-- Top 5 leaderboard -->
-  <h6 class="fw-bold mb-2">Top 5 Classifica</h6>
-  <div class="card shadow-sm">
-    <ul class="list-group list-group-flush">
-      {% for u in top_users %}
-      <li class="list-group-item d-flex align-items-center gap-3 px-3 py-2">
-        <span class="fw-bold {% if loop.index == 1 %}text-warning{% elif loop.index == 2 %}text-secondary{% elif loop.index == 3 %}text-danger{% else %}text-muted{% endif %}"
-              style="width:1.4rem;text-align:center">
-          {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
-        </span>
-        <div class="flex-grow-1">
-          <div class="fw-semibold small">{{ u.username }}</div>
-          <div class="text-muted" style="font-size:.75rem">{{ u.predictions_count }} predizioni</div>
-        </div>
-        <div class="text-end">
-          <span class="badge bg-success">{{ u.accuracy }}%</span>
-          {% if u.success_streak > 0 %}
-          <div class="text-muted mt-1" style="font-size:.7rem">🔥{{ u.success_streak }}</div>
-          {% endif %}
-        </div>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <!-- Platform stats -->
-  <div class="d-flex gap-3 mt-3 text-muted small justify-content-center">
-    <span><i class="bi bi-people-fill me-1"></i>{{ total_users }} utenti</span>
-    <span><i class="bi bi-lightning-fill me-1"></i>{{ total_predictions }} predizioni totali</span>
-  </div>
 
 </div>
 {% endblock %}

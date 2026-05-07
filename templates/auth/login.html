@@ -1,39 +1,29 @@
 {% extends 'base.html' %}
-{% block title %}Accedi — PredictSport{% endblock %}
-
+{% block title %}Accedi — HikePath{% endblock %}
 {% block content %}
-<div class="d-flex flex-column align-items-center justify-content-center min-vh-100 px-3 py-5">
-  <div class="mb-4 text-center">
-    <i class="bi bi-trophy-fill text-primary" style="font-size:3rem"></i>
-    <h1 class="fw-bold mt-2 fs-3">PredictSport</h1>
-    <p class="text-muted small">La tua community di predizioni sportive</p>
+<div class="auth-page">
+  <div class="auth-logo">
+    <i class="bi bi-signpost-2-fill"></i>
+    <h1>HikePath</h1>
+    <p>Pianifica, esplora, conquista le vette</p>
   </div>
-
-  <div class="card shadow-sm w-100" style="max-width:400px">
-    <div class="card-body p-4">
-      <h5 class="card-title fw-bold mb-4">Accedi</h5>
-      <form method="POST">
-        <div class="mb-3">
-          <label class="form-label small fw-semibold">Username</label>
-          <input type="text" name="username" class="form-control" placeholder="Il tuo username" required autofocus>
-        </div>
-        <div class="mb-4">
-          <label class="form-label small fw-semibold">Password</label>
-          <input type="password" name="password" class="form-control" placeholder="••••••" required>
-        </div>
-        <button type="submit" class="btn btn-primary w-100 fw-semibold">Accedi</button>
-      </form>
-    </div>
-  </div>
-
-  <p class="mt-3 text-muted small">
-    Non hai un account?
-    <a href="{{ url_for('register') }}" class="text-primary fw-semibold">Registrati</a>
-  </p>
-
-  <div class="mt-4 text-center">
-    <p class="text-muted small mb-1">Account demo:</p>
-    <code class="small text-secondary">ProPredictor / demo1234</code>
+  <div class="auth-card">
+    <h5>Accedi</h5>
+    <form method="POST">
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" autofocus required>
+      </div>
+      <div class="mb-4">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required>
+      </div>
+      <button type="submit" class="btn btn-success w-100 fw-semibold">Accedi</button>
+    </form>
+    <p class="mt-3 text-center text-muted small">
+      Non hai un account?
+      <a href="{{ url_for('register') }}" class="text-success">Registrati</a>
+    </p>
   </div>
 </div>
 {% endblock %}

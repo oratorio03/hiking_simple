@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Navigazione — {{ route.name }}{% endblock %}
+
+{% block head %}
+<style>
+  #nav-map { height: calc(100vh - 56px - 60px - 120px); min-height: 300px; }
+  .nav-hud {
+    position: fixed; bottom: 60px; left: 0; right: 0;
+    background: rgba(0,0,0,.82); color: #fff;
+    padding: 12px 16px; z-index: 1000;
+    display: flex; align-items: center; gap: 12px;
+    backdrop-filter: blur(6px);
+  }
+  .hud-stat { text-align:center; flex:1; }
+  .hud-val { font-size:1.4rem; font-weight:700; line-height:1; }
+  .hud-label { font-size:.65rem; color:#aaa; margin-top:2px; }
+  .nav-btn-row { display:flex; gap:8px; padding: 8px 12px; background:#f8f9fa; border-top:1px solid #dee2e6; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div id="nav-map"></div>
+
+<!-- Navigation HUD -->
+<div class="nav-hud">
+  <div class="hud-stat">
+    <div class="hud-val text-success" id="hud-dist">—</div>
+    <div class="hud-label">Dist. rimasta</div>
+  </div>
+  <div class="hud-stat">
+    <div class="hud-val text-warning" id="hud-speed">—</div>
+    <div class="hud-label">km/h</div>
+  </div>
+  <div class="hud-stat">
+    <div class="hud-val text-info" id="hud-acc">—</div>
+    <div class="hud-label">Precisione GPS</div>
+  </div>
+  <div class="hud-stat">
+    <div class="hud-val" id="hud-wp">—</div>
+    <div class="hud-label">Prossima tappa</div>
+  </div>
+</div>
+
+<!-- Control row -->
+<div class="nav-btn-row">
+  <a href="{{ url_for('route_detail', route_id=route.id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Torna
+  </a>
+  <button id="btn-start-nav" class="btn btn-success btn-sm flex-grow-1">
+    <i class="bi bi-compass-fill me-1"></i>Avvia navigazione GPS
+  </button>
+  <button id="btn-center" class="btn btn-outline-primary btn-sm" disabled>
+    <i class="bi bi-crosshair"></i>
+  </button>
+</div>
+
+<script>
+const NAV_ROUTE = {{ route.to_dict()|tojson }};
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/navigate.js') }}"></script>
+{% endblock %}

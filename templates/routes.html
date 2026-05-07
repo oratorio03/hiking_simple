@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}I miei percorsi — HikePath{% endblock %}
+{% block content %}
+<div class="page-content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="fw-bold mb-0">I miei percorsi</h5>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">
+      <i class="bi bi-plus-lg me-1"></i>Nuovo
+    </a>
+  </div>
+
+  <!-- Difficulty filter -->
+  <div class="d-flex gap-2 mb-3 overflow-auto pb-1">
+    <a href="{{ url_for('routes_list') }}"
+       class="btn btn-sm rounded-pill flex-shrink-0 {% if not filter_difficulty %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+      Tutti
+    </a>
+    {% for val, label in [('easy','Facile'),('medium','Medio'),('hard','Difficile'),('expert','Esperto')] %}
+    <a href="{{ url_for('routes_list', difficulty=val) }}"
+       class="btn btn-sm rounded-pill flex-shrink-0 {% if filter_difficulty == val %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+      {{ label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  {% if routes %}
+  <div class="route-list">
+    {% for route in routes %}
+    <a href="{{ url_for('route_detail', route_id=route.id) }}" class="route-card text-decoration-none">
+      <div class="route-card-body">
+        <div class="d-flex align-items-start justify-content-between mb-1">
+          <div class="route-name">{{ route.name }}</div>
+          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
+        </div>
+        {% if route.description %}
+        <div class="route-desc mb-1">{{ route.description[:80] }}{% if route.description|length > 80 %}…{% endif %}</div>
+        {% endif %}
+        <div class="route-meta">
+          <span><i class="bi bi-arrows-expand-vertical"></i> {{ "%.1f"|format(route.distance_km) }} km</span>
+          <span><i class="bi bi-clock"></i> {{ route.duration_str() }}</span>
+          {% if route.elevation_gain_m %}
+          <span><i class="bi bi-graph-up"></i> +{{ route.elevation_gain_m }}m</span>
+          {% endif %}
+          <span><i class="bi bi-check-circle"></i> {{ route.logs|length }} uscite</span>
+          <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-signpost-split text-success"></i>
+    <p>Nessun percorso{% if filter_difficulty %} con questa difficoltà{% endif %}.</p>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Crea il primo</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
