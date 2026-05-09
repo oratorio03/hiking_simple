@@ -4,12 +4,18 @@
 {% block head %}
 <style>
   .main { display:flex; flex-direction:column; height:calc(100vh - 56px - 60px); }
-  #map { flex: 0 0 52vh; min-height: 200px; }
+  #map { flex: 0 0 52vh; min-height: 200px; position:relative; }
   #panel { flex: 1; overflow-y: auto; background: #fff; }
   @media (min-width: 768px) {
     .main { flex-direction: row; height: calc(100vh - 56px - 60px); }
     #map { flex: 1; height: 100%; }
     #panel { flex: 0 0 360px; height: 100%; border-left: 1px solid #dee2e6; }
+  }
+  .map-spinner {
+    position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.65); color:#fff; padding:5px 14px;
+    border-radius:999px; font-size:.78rem; z-index:800; display:none;
+    align-items:center; gap:6px;
   }
 </style>
 {% endblock %}
@@ -18,7 +24,12 @@
 <div class="main">
 
   <!-- MAP -->
-  <div id="map"></div>
+  <div id="map">
+    <div class="map-spinner" id="map-spinner">
+      <span class="spinner-border spinner-border-sm"></span>
+      <span id="spinner-text">Calcolo percorso…</span>
+    </div>
+  </div>
 
   <!-- PANEL -->
   <div id="panel" class="d-flex flex-column">
@@ -27,37 +38,53 @@
     <div class="p-3 border-bottom position-relative">
       <div class="input-group input-group-sm">
         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-        <input type="text" id="search-input" class="form-control" placeholder="Cerca luogo, vetta, rifugio…">
+        <input type="text" id="search-input" class="form-control" placeholder="Cerca vetta, rifugio, lago…">
         <button class="btn btn-outline-secondary" id="search-btn">Vai</button>
       </div>
-      <div id="search-results" class="list-group mt-1 shadow-sm"
-           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999"></div>
+      <div id="search-results" class="list-group mt-1 shadow"
+           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999;max-height:200px;overflow-y:auto"></div>
     </div>
 
-    <!-- Mode buttons -->
-    <div class="d-flex gap-2 px-3 py-2 border-bottom bg-light">
-      <button id="btn-undo" class="btn btn-sm btn-outline-secondary" disabled>
-        <i class="bi bi-arrow-counterclockwise me-1"></i>Ultimo
-      </button>
-      <button id="btn-clear" class="btn btn-sm btn-outline-danger ms-auto" disabled>
-        <i class="bi bi-trash me-1"></i>Azzera
-      </button>
+    <!-- Routing mode + undo/clear -->
+    <div class="border-bottom">
+      <div class="d-flex gap-1 px-3 py-2 bg-light align-items-center flex-wrap">
+        <span class="text-muted small me-1">Modalità:</span>
+        <button id="btn-mode-osrm" class="btn btn-sm btn-success" onclick="setRouteMode('osrm')"
+                title="Calcola il percorso reale su sentieri/strade (via OSRM)">
+          <i class="bi bi-signpost-split me-1"></i>Sentiero
+        </button>
+        <button id="btn-mode-direct" class="btn btn-sm btn-outline-secondary" onclick="setRouteMode('direct')"
+                title="Collega i punti in linea retta (utile per percorsi fuori sentiero o quando OSRM sbaglia)">
+          <i class="bi bi-slash-lg me-1"></i>Linea retta
+        </button>
+        <button id="btn-undo" class="btn btn-sm btn-outline-secondary ms-auto" disabled title="Rimuovi ultimo waypoint">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+        <button id="btn-clear" class="btn btn-sm btn-outline-danger" disabled title="Rimuovi tutti i waypoint">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+
+      <!-- Status message -->
+      <div id="status-bar" class="px-3 pb-2 d-none">
+        <span id="status-msg" class="small"></span>
+      </div>
     </div>
 
     <!-- Stats bar -->
     <div id="stats-bar" class="px-3 py-2 border-bottom bg-success bg-opacity-10 d-none">
       <div class="d-flex flex-wrap gap-3 text-success fw-semibold small">
-        <span title="Distanza"><i class="bi bi-arrows-expand-vertical me-1"></i><span id="stat-dist">0</span> km</span>
-        <span title="Durata stimata"><i class="bi bi-clock me-1"></i><span id="stat-dur">—</span></span>
-        <span title="Dislivello positivo"><i class="bi bi-graph-up me-1"></i>+<span id="stat-gain">—</span>m</span>
-        <span title="Dislivello negativo" class="text-danger"><i class="bi bi-graph-down me-1"></i>-<span id="stat-loss">—</span>m</span>
+        <span><i class="bi bi-arrows-expand-vertical me-1"></i><span id="stat-dist">0</span> km</span>
+        <span><i class="bi bi-clock me-1"></i><span id="stat-dur">—</span></span>
+        <span><i class="bi bi-graph-up me-1"></i>+<span id="stat-gain">—</span>m</span>
+        <span class="text-danger"><i class="bi bi-graph-down me-1"></i>-<span id="stat-loss">—</span>m</span>
       </div>
       <div class="d-flex flex-wrap gap-3 mt-1 small">
-        <span class="text-muted" title="Quota max"><i class="bi bi-arrow-up me-1"></i>Max <span id="stat-maxelev">—</span>m</span>
-        <span class="text-muted" title="Quota min"><i class="bi bi-arrow-down me-1"></i>Min <span id="stat-minelev">—</span>m</span>
-        <span id="slope-avg-span" class="fw-semibold" title="Pendenza media">∅ <span id="stat-slope-avg">—</span>%</span>
-        <span id="slope-asc-span" class="text-danger small" title="Pendenza max salita">▲ <span id="stat-slope-asc">—</span>%</span>
-        <span id="slope-desc-span" class="text-primary small" title="Pendenza max discesa">▼ <span id="stat-slope-desc">—</span>%</span>
+        <span class="text-muted"><i class="bi bi-arrow-up me-1"></i>Max <span id="stat-maxelev">—</span> m s.l.m.</span>
+        <span class="text-muted"><i class="bi bi-arrow-down me-1"></i>Min <span id="stat-minelev">—</span> m s.l.m.</span>
+        <span id="slope-avg-span" class="fw-semibold">∅ <span id="stat-slope-avg">—</span>%</span>
+        <span class="text-danger">▲ <span id="stat-slope-asc">—</span>%</span>
+        <span class="text-primary">▼ <span id="stat-slope-desc">—</span>%</span>
       </div>
     </div>
 
@@ -67,19 +94,26 @@
         <span class="small fw-semibold text-muted">TAPPE (<span id="wp-count">0</span>)</span>
       </div>
       <div id="wp-list" class="wp-list"></div>
-      <div id="wp-empty" class="text-muted small py-2">
+      <div id="wp-empty" class="text-muted small py-1">
         <i class="bi bi-cursor-fill me-1"></i>Clicca sulla mappa per aggiungere tappe
       </div>
     </div>
 
-    <!-- Chart tabs -->
-    <div id="chart-panel" class="px-3 pt-2 border-bottom d-none">
-      <div class="d-flex gap-2 mb-1">
-        <button class="btn btn-xs btn-link px-0 fw-semibold active-chart-tab" id="tab-elev" onclick="showTab('elev')">Altimetria</button>
-        <button class="btn btn-xs btn-link px-0 text-muted" id="tab-slope" onclick="showTab('slope')">Pendenza</button>
+    <!-- Chart panel -->
+    <div id="chart-panel" class="border-bottom d-none">
+      <div class="d-flex gap-2 px-3 pt-2 mb-1 align-items-center">
+        <button class="btn-chart-tab active-chart-tab" id="tab-elev" onclick="showTab('elev')">Altimetria</button>
+        <button class="btn-chart-tab text-muted" id="tab-slope" onclick="showTab('slope')">Pendenza</button>
+        <button class="btn btn-link btn-sm p-0 ms-auto text-muted small" id="btn-reload-elev"
+                onclick="reloadElevation()" title="Ricarica dati altimetrici" style="display:none">
+          <i class="bi bi-arrow-clockwise"></i> Ricarica
+        </button>
       </div>
-      <div id="chart-elev"><canvas id="elev-chart" height="80"></canvas></div>
-      <div id="chart-slope" style="display:none"><canvas id="slope-chart" height="80"></canvas></div>
+      <div id="elev-status" class="px-3 py-1 small text-muted" style="display:none"></div>
+      <div class="px-3 pb-2">
+        <div id="chart-elev"><canvas id="elev-chart" height="80"></canvas></div>
+        <div id="chart-slope" style="display:none"><canvas id="slope-chart" height="80"></canvas></div>
+      </div>
     </div>
 
     <!-- Save form -->
@@ -94,10 +128,16 @@
                     placeholder="Descrizione (opzionale)" maxlength="500"></textarea>
         </div>
 
-        <!-- Row: trail type + route shape -->
+        <!-- Trail type + route shape -->
         <div class="row g-2 mb-2">
           <div class="col-7">
-            <label class="form-label form-label-sm mb-1 fw-semibold small">Scala CAI</label>
+            <div class="d-flex align-items-center gap-1 mb-1">
+              <label class="form-label form-label-sm mb-0 fw-semibold small">Scala CAI</label>
+              <button type="button" class="btn btn-link btn-sm p-0 text-muted" style="font-size:.7rem"
+                      data-bs-toggle="modal" data-bs-target="#caiModal">
+                <i class="bi bi-info-circle"></i>
+              </button>
+            </div>
             <select id="route-trail-type" class="form-select form-select-sm">
               <option value="T">T — Turistico</option>
               <option value="E" selected>E — Escursionistico</option>
@@ -112,7 +152,7 @@
             </select>
           </div>
           <div class="col-5">
-            <label class="form-label form-label-sm mb-1 fw-semibold small">Tipo</label>
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Tipo percorso</label>
             <select id="route-type-tag" class="form-select form-select-sm">
               <option value="punto_punto">Punto a punto</option>
               <option value="anello">Anello</option>
@@ -122,7 +162,7 @@
           </div>
         </div>
 
-        <!-- Row: surface + difficulty -->
+        <!-- Surface + difficulty -->
         <div class="row g-2 mb-2">
           <div class="col-7">
             <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie</label>
@@ -145,7 +185,7 @@
           </div>
         </div>
 
-        <!-- Ferrata grade (shown only when EEA) -->
+        <!-- Ferrata grade (shown only for EEA) -->
         <div id="ferrata-row" class="mb-2 d-none">
           <label class="form-label form-label-sm mb-1 fw-semibold small">Grado ferrata</label>
           <select id="route-ferrata-grade" class="form-select form-select-sm">
@@ -161,7 +201,10 @@
 
         <!-- Hazards -->
         <div class="mb-3">
-          <label class="form-label form-label-sm mb-1 fw-semibold small">Pericolosità / caratteristiche</label>
+          <label class="form-label form-label-sm mb-1 fw-semibold small">
+            Pericolosità
+            <span class="text-muted fw-normal">(appariranno come badge sulla scheda percorso)</span>
+          </label>
           <div class="hazard-check-grid">
             {% for key, (icon, color, label) in HAZARD_META.items() %}
             <label class="hazard-check-item">
@@ -176,13 +219,41 @@
           <i class="bi bi-floppy me-1"></i>Salva percorso
         </button>
         {% if route %}
-        <p class="text-muted text-center small mt-1 mb-0">
-          Modifica: <strong>{{ route.name }}</strong>
-        </p>
+        <p class="text-muted text-center small mt-1 mb-0">Modifica: <strong>{{ route.name }}</strong></p>
         {% endif %}
       </form>
     </div>
 
+  </div>
+</div>
+
+<!-- CAI Scale info modal -->
+<div class="modal fade" id="caiModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">Scala difficoltà CAI</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body small">
+        <table class="table table-sm">
+          <thead><tr><th>Sigla</th><th>Nome</th><th>Descrizione</th></tr></thead>
+          <tbody>
+            <tr><td><strong>T</strong></td><td>Turistico</td><td>Su strade o mulattiere, senza difficoltà di orientamento</td></tr>
+            <tr><td><strong>E</strong></td><td>Escursionistico</td><td>Su sentieri con segnaletica, nessun pericolo</td></tr>
+            <tr><td><strong>EE</strong></td><td>Escursionisti Esperti</td><td>Sentieri con tratti esposti, su roccia, richiede esperienza</td></tr>
+            <tr><td><strong>EEA</strong></td><td>Ferrata / Attrezzato</td><td>Via ferrate o percorsi attrezzati, necessario imbragatura</td></tr>
+            <tr class="table-secondary"><td colspan="3" class="fw-semibold">Scale alpinistiche</td></tr>
+            <tr><td><strong>F</strong></td><td>Facile</td><td>Alpinismo semplice, roccia solida</td></tr>
+            <tr><td><strong>PD</strong></td><td>Poco Difficile</td><td>Tratti di II grado, qualche passo su roccia</td></tr>
+            <tr><td><strong>AD</strong></td><td>Abbastanza Difficile</td><td>III grado, passaggi delicati</td></tr>
+            <tr><td><strong>D</strong></td><td>Difficile</td><td>IV grado, richiede tecnica</td></tr>
+            <tr><td><strong>TD</strong></td><td>Molto Difficile</td><td>V grado, alpinisti esperti</td></tr>
+            <tr><td><strong>ED</strong></td><td>Estremo</td><td>VI grado e oltre, elite</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -194,7 +265,7 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 <script>
-// Show/hide ferrata grade selector
+// Show/hide ferrata grade
 document.getElementById('route-trail-type').addEventListener('change', function() {
   document.getElementById('ferrata-row').classList.toggle('d-none', this.value !== 'EEA');
 });
@@ -204,8 +275,8 @@ function showTab(tab) {
   document.getElementById('chart-elev').style.display = tab === 'elev' ? '' : 'none';
   document.getElementById('chart-slope').style.display = tab === 'slope' ? '' : 'none';
   document.getElementById('tab-elev').classList.toggle('active-chart-tab', tab === 'elev');
-  document.getElementById('tab-slope').classList.toggle('active-chart-tab', tab === 'slope');
   document.getElementById('tab-elev').classList.toggle('text-muted', tab !== 'elev');
+  document.getElementById('tab-slope').classList.toggle('active-chart-tab', tab === 'slope');
   document.getElementById('tab-slope').classList.toggle('text-muted', tab === 'elev');
 }
 </script>
