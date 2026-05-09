@@ -1,13 +1,15 @@
 // ── Constants ─────────────────────────────────────────────────────────────
-const OSRM     = 'https://router.project-osrm.org/route/v1/foot';
-const NOMIN    = 'https://nominatim.openstreetmap.org';
-const TOPO_API = 'https://api.opentopodata.org/v1/srtm30m';
+const OSRM          = 'https://router.project-osrm.org/route/v1/foot';
+const NOMIN         = 'https://nominatim.openstreetmap.org';
+const TOPO_API      = 'https://api.opentopodata.org/v1/srtm30m';
+const ELEV_FALLBACK = 'https://api.open-elevation.com/api/v1/lookup';
 
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, elevChart, slopeChart;
-let waypoints = [];
+let waypoints     = [];
 let routeGeometry = null;
-let routeStats = {
+let routeMode     = 'osrm';  // 'osrm' | 'direct'
+let routeStats    = {
   distance: 0, duration: 0,
   elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
   avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
@@ -51,12 +53,30 @@ function initMap() {
   map.on('click', e => addWaypoint(e.latlng.lat, e.latlng.lng));
 }
 
+// ── Routing mode ──────────────────────────────────────────────────────────
+
+function setRouteMode(mode) {
+  routeMode = mode;
+  const btnOsrm   = document.getElementById('btn-mode-osrm');
+  const btnDirect = document.getElementById('btn-mode-direct');
+  if (mode === 'osrm') {
+    btnOsrm.className   = 'btn btn-sm btn-success';
+    btnDirect.className = 'btn btn-sm btn-outline-secondary';
+  } else {
+    btnOsrm.className   = 'btn btn-sm btn-outline-secondary';
+    btnDirect.className = 'btn btn-sm btn-success';
+  }
+  if (waypoints.length >= 2) {
+    mode === 'osrm' ? calcRoute() : calcRouteDirect();
+  }
+}
+
 // ── Waypoints ─────────────────────────────────────────────────────────────
 
 async function addWaypoint(lat, lng, name = null) {
   if (!name) name = await reverseGeocode(lat, lng);
 
-  const id = Date.now() + Math.random();
+  const id     = Date.now() + Math.random();
   const marker = makeMarker(lat, lng, waypoints.length, name);
   marker.addTo(map);
 
@@ -70,12 +90,16 @@ async function addWaypoint(lat, lng, name = null) {
     marker.setPopupContent(wp.name);
     refreshMarkerIcons();
     updateWpList();
-    if (waypoints.length >= 2) await calcRoute();
+    if (waypoints.length >= 2) {
+      routeMode === 'osrm' ? await calcRoute() : calcRouteDirect();
+    }
   });
 
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) await calcRoute();
+  if (waypoints.length >= 2) {
+    routeMode === 'osrm' ? await calcRoute() : calcRouteDirect();
+  }
 }
 
 function removeWaypoint(id) {
@@ -85,8 +109,11 @@ function removeWaypoint(id) {
   waypoints.splice(idx, 1);
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) calcRoute();
-  else clearRoute();
+  if (waypoints.length >= 2) {
+    routeMode === 'osrm' ? calcRoute() : calcRouteDirect();
+  } else {
+    clearRoute();
+  }
 }
 
 function clearAll() {
@@ -101,14 +128,16 @@ function undoLast() {
   map.removeLayer(waypoints.pop().marker);
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) calcRoute();
-  else clearRoute();
+  if (waypoints.length >= 2) {
+    routeMode === 'osrm' ? calcRoute() : calcRouteDirect();
+  } else {
+    clearRoute();
+  }
 }
 
 function makeMarker(lat, lng, idx, name) {
-  const colors = ['#198754', '#0d6efd', '#0d6efd', '#0d6efd', '#dc3545'];
   const color = idx === 0 ? '#198754' : '#0d6efd';
-  const icon = L.divIcon({
+  const icon  = L.divIcon({
     html: `<div class="wp-marker" style="background:${color}">${idx + 1}</div>`,
     className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
   });
@@ -119,7 +148,7 @@ function refreshMarkerIcons() {
   waypoints.forEach((wp, i) => {
     const isEnd = i === waypoints.length - 1 && i > 0;
     const color = i === 0 ? '#198754' : isEnd ? '#dc3545' : '#0d6efd';
-    const icon = L.divIcon({
+    const icon  = L.divIcon({
       html: `<div class="wp-marker" style="background:${color}">${i + 1}</div>`,
       className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
     });
@@ -128,35 +157,82 @@ function refreshMarkerIcons() {
   });
 }
 
-// ── Routing ───────────────────────────────────────────────────────────────
+// ── OSRM Routing ──────────────────────────────────────────────────────────
 
 async function calcRoute() {
   if (waypoints.length < 2) return;
+  showSpinner('Calcolo percorso…');
+  setStatus('', '');
+
   const coords = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
   try {
-    const res = await fetch(`${OSRM}/${coords}?overview=full&geometries=geojson`);
+    const res  = await fetchWithTimeout(
+      `${OSRM}/${coords}?overview=full&geometries=geojson`, {}, 12000
+    );
     const data = await res.json();
-    if (data.code !== 'Ok' || !data.routes.length) return;
 
-    const r = data.routes[0];
-    routeGeometry = r.geometry;
-    routeStats.distance = r.distance / 1000;
+    if (data.code !== 'Ok' || !data.routes.length) {
+      setStatus('Routing non disponibile. Prova la modalità Linea retta.', 'warning');
+      hideSpinner();
+      return;
+    }
+
+    const r        = data.routes[0];
+    routeGeometry  = r.geometry;
+    const osrmDist = r.distance / 1000;
+
+    // Warn if OSRM route is suspiciously long compared to straight-line distance
+    const straight = haversineTotal(waypoints);
+    if (straight > 0.3 && osrmDist > straight * 2.5) {
+      setStatus(
+        `Percorso calcolato (${osrmDist.toFixed(1)} km) molto più lungo del previsto ` +
+        `(${straight.toFixed(1)} km in linea retta). Prova la modalità Linea retta.`,
+        'warning'
+      );
+    } else {
+      setStatus('', '');
+    }
+
+    routeStats.distance = osrmDist;
     routeStats.duration = r.duration / 60;
 
-    drawRoute();
+    drawRoute(false);
     updateStatsBar();
     updateBtnState();
+    hideSpinner();
     await fetchElevation();
   } catch (err) {
+    hideSpinner();
+    setStatus('Errore di rete. Controlla la connessione o prova Linea retta.', 'danger');
     console.error('Routing error', err);
   }
 }
 
-function drawRoute() {
+// ── Direct (straight-line) routing ────────────────────────────────────────
+
+function calcRouteDirect() {
+  if (waypoints.length < 2) return;
+  setStatus('Modalità linea retta: distanza euclidea, non percorso reale.', 'muted');
+
+  routeGeometry   = { type: 'LineString', coordinates: waypoints.map(w => [w.lng, w.lat]) };
+  routeStats.distance = haversineTotal(waypoints);
+  // Rough hiking estimate: 4 km/h on open terrain
+  routeStats.duration = (routeStats.distance / 4) * 60;
+
+  drawRoute(true);
+  updateStatsBar();
+  updateBtnState();
+  fetchElevation();
+}
+
+// ── Route drawing ─────────────────────────────────────────────────────────
+
+function drawRoute(dashed = false) {
   if (routeLayer) map.removeLayer(routeLayer);
-  routeLayer = L.geoJSON(routeGeometry, {
-    style: { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }
-  }).addTo(map);
+  const style = dashed
+    ? { color: '#198754', weight: 4, opacity: 0.8, dashArray: '8 6', lineCap: 'round' }
+    : { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' };
+  routeLayer = L.geoJSON(routeGeometry, { style }).addTo(map);
   map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
 }
 
@@ -171,6 +247,7 @@ function clearRoute() {
   };
   document.getElementById('stats-bar')?.classList.add('d-none');
   document.getElementById('chart-panel')?.classList.add('d-none');
+  setStatus('', '');
   updateBtnState();
 }
 
@@ -178,37 +255,76 @@ function clearRoute() {
 
 async function fetchElevation() {
   if (!routeGeometry) return;
-  const coords = routeGeometry.coordinates;
-  const step = Math.max(1, Math.floor(coords.length / 80));
+
+  const elevStatus = document.getElementById('elev-status');
+  const reloadBtn  = document.getElementById('btn-reload-elev');
+  if (elevStatus) { elevStatus.textContent = 'Caricamento dati altimetrici…'; elevStatus.style.display = ''; }
+  if (reloadBtn)  reloadBtn.style.display = 'none';
+
+  const coords  = routeGeometry.coordinates;
+  const step    = Math.max(1, Math.floor(coords.length / 50));
   const sampled = coords.filter((_, i) => i % step === 0);
-  // Ensure last point is included
   if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
     sampled.push(coords[coords.length - 1]);
   }
 
-  const locations = sampled.map(c => `${c[1]},${c[0]}`).join('|');
+  let elevs = null;
+
+  // Primary: OpenTopoData SRTM30m
   try {
-    const res = await fetch(`${TOPO_API}?locations=${locations}`);
+    const locs = sampled.map(c => `${c[1]},${c[0]}`).join('|');
+    const res  = await fetchWithTimeout(`${TOPO_API}?locations=${locs}`, {}, 9000);
     const data = await res.json();
-    if (data.status !== 'OK') return;
-
-    const elevs = data.results.map(r => r.elevation);
-    processElevation(elevs);
-    drawElevChart(elevs);
-    drawSlopeChart(routeStats.slopeSeries);
-    updateStatsBar();
-
-    document.getElementById('chart-panel')?.classList.remove('d-none');
-  } catch (err) {
-    console.warn('Elevation API unavailable');
+    if (data.status === 'OK' && data.results?.length) {
+      elevs = data.results.map(r => r.elevation);
+    }
+  } catch (e) {
+    console.warn('OpenTopoData unavailable, trying fallback', e);
   }
+
+  // Fallback: Open-Elevation (POST)
+  if (!elevs) {
+    try {
+      if (elevStatus) elevStatus.textContent = 'Tentativo con API alternativa…';
+      const locations = sampled.map(c => ({ latitude: c[1], longitude: c[0] }));
+      const res = await fetchWithTimeout(ELEV_FALLBACK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locations })
+      }, 14000);
+      const data = await res.json();
+      if (data.results?.length) {
+        elevs = data.results.map(r => r.elevation);
+      }
+    } catch (e) {
+      console.warn('Open-Elevation fallback also failed', e);
+    }
+  }
+
+  if (!elevs) {
+    if (elevStatus) elevStatus.textContent = 'Dati altimetrici non disponibili (API sovraccarica). Riprova tra poco.';
+    if (reloadBtn)  reloadBtn.style.display = '';
+    return;
+  }
+
+  if (elevStatus) elevStatus.style.display = 'none';
+  if (reloadBtn)  reloadBtn.style.display  = 'none';
+
+  processElevation(elevs);
+  drawElevChart(elevs);
+  drawSlopeChart(routeStats.slopeSeries);
+  updateStatsBar();
+  document.getElementById('chart-panel')?.classList.remove('d-none');
+}
+
+function reloadElevation() {
+  fetchElevation();
 }
 
 function processElevation(elevs) {
-  // Elevation stats
   routeStats.elevSeries = elevs;
-  routeStats.maxElev = Math.round(Math.max(...elevs));
-  routeStats.minElev = Math.round(Math.min(...elevs));
+  routeStats.maxElev    = Math.round(Math.max(...elevs));
+  routeStats.minElev    = Math.round(Math.min(...elevs));
 
   let gain = 0, loss = 0;
   for (let i = 1; i < elevs.length; i++) {
@@ -218,18 +334,16 @@ function processElevation(elevs) {
   routeStats.elevGain = Math.round(gain);
   routeStats.elevLoss = Math.round(loss);
 
-  // Slope stats (% gradient per segment)
   const segDistM = (routeStats.distance * 1000) / (elevs.length - 1);
-  const slopes = [];
+  const slopes   = [];
   for (let i = 1; i < elevs.length; i++) {
     const slope = ((elevs[i] - elevs[i - 1]) / segDistM) * 100;
     slopes.push(Math.round(slope * 10) / 10);
   }
-  routeStats.slopeSeries = slopes;
-
-  const absSlopes = slopes.map(Math.abs);
-  routeStats.avgSlope = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
-  routeStats.maxSlopeAsc = Math.max(...slopes);
+  routeStats.slopeSeries  = slopes;
+  const absSlopes         = slopes.map(Math.abs);
+  routeStats.avgSlope     = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
+  routeStats.maxSlopeAsc  = Math.max(...slopes);
   routeStats.maxSlopeDesc = Math.min(...slopes);
 }
 
@@ -304,10 +418,10 @@ function drawSlopeChart(slopes) {
         tooltip: {
           callbacks: {
             label: ctx => {
-              const v = ctx.parsed.y;
+              const v   = ctx.parsed.y;
               const abs = Math.abs(v);
-              const label = abs < 10 ? 'dolce' : abs < 20 ? 'moderata' : abs < 30 ? 'ripida' : 'molto ripida';
-              return `${v > 0 ? '+' : ''}${v.toFixed(1)}%  (${label})`;
+              const lbl = abs < 10 ? 'dolce' : abs < 20 ? 'moderata' : abs < 30 ? 'ripida' : 'molto ripida';
+              return `${v > 0 ? '+' : ''}${v.toFixed(1)}%  (${lbl})`;
             }
           }
         }
@@ -326,25 +440,22 @@ function drawSlopeChart(slopes) {
 // ── Stats bar ─────────────────────────────────────────────────────────────
 
 function updateStatsBar() {
-  const el = id => document.getElementById(id);
+  const el  = id => document.getElementById(id);
   const bar = el('stats-bar');
   if (!bar) return;
 
   el('stat-dist').textContent = routeStats.distance.toFixed(2);
-  el('stat-dur').textContent = fmtDuration(routeStats.duration);
+  el('stat-dur').textContent  = fmtDuration(routeStats.duration);
   el('stat-gain').textContent = routeStats.elevGain > 0 ? routeStats.elevGain : '—';
   el('stat-loss').textContent = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
   el('stat-maxelev').textContent = routeStats.maxElev ?? '—';
   el('stat-minelev').textContent = routeStats.minElev ?? '—';
 
   if (routeStats.avgSlope !== null) {
-    el('stat-slope-avg').textContent = routeStats.avgSlope.toFixed(1);
-    el('stat-slope-asc').textContent = `+${routeStats.maxSlopeAsc.toFixed(1)}`;
+    el('stat-slope-avg').textContent  = routeStats.avgSlope.toFixed(1);
+    el('stat-slope-asc').textContent  = `+${routeStats.maxSlopeAsc.toFixed(1)}`;
     el('stat-slope-desc').textContent = `${routeStats.maxSlopeDesc.toFixed(1)}`;
-
-    // Color avg slope
-    const avgEl = el('slope-avg-span');
-    avgEl.className = `fw-semibold text-${slopeColorClass(routeStats.avgSlope)}`;
+    el('slope-avg-span').className    = `fw-semibold text-${slopeColorClass(routeStats.avgSlope)}`;
   }
 
   bar.classList.remove('d-none');
@@ -367,21 +478,21 @@ function fmtDuration(min) {
 // ── Waypoint list UI ──────────────────────────────────────────────────────
 
 function updateWpList() {
-  const list = document.getElementById('wp-list');
+  const list  = document.getElementById('wp-list');
   const empty = document.getElementById('wp-empty');
   const count = document.getElementById('wp-count');
   if (!list) return;
 
   count.textContent = waypoints.length;
   if (!waypoints.length) {
-    list.innerHTML = '';
+    list.innerHTML      = '';
     empty.style.display = '';
     return;
   }
   empty.style.display = 'none';
 
   list.innerHTML = waypoints.map((wp, i) => {
-    const isEnd = i === waypoints.length - 1 && i > 0;
+    const isEnd    = i === waypoints.length - 1 && i > 0;
     const dotClass = i === 0 ? 'wp-dot-start' : isEnd ? 'wp-dot-end' : 'wp-dot-mid';
     return `
       <div class="wp-list-row">
@@ -398,9 +509,9 @@ function updateWpList() {
 
 function updateBtnState() {
   const hasWps = waypoints.length > 0;
-  document.getElementById('btn-undo').disabled = !hasWps;
+  document.getElementById('btn-undo').disabled  = !hasWps;
   document.getElementById('btn-clear').disabled = !hasWps;
-  document.getElementById('btn-save').disabled = routeGeometry === null;
+  document.getElementById('btn-save').disabled  = routeGeometry === null;
 }
 
 // ── Search ────────────────────────────────────────────────────────────────
@@ -438,9 +549,10 @@ function selectResult(lat, lon, name) {
 
 async function reverseGeocode(lat, lng) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${NOMIN}/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=it`,
-      { headers: { 'User-Agent': 'HikePath/1.0' } }
+      { headers: { 'User-Agent': 'HikePath/1.0' } },
+      5000
     );
     const d = await res.json();
     return d.address?.road || d.address?.hamlet || d.address?.village ||
@@ -456,38 +568,41 @@ async function reverseGeocode(lat, lng) {
 document.getElementById('save-form')?.addEventListener('submit', async e => {
   e.preventDefault();
   const btn = document.getElementById('btn-save');
-  btn.disabled = true;
+  btn.disabled  = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvo…';
 
   const hazards = [...document.querySelectorAll('.hazard-cb:checked')].map(cb => cb.value);
 
   const payload = {
-    name:             document.getElementById('route-name').value.trim(),
-    description:      document.getElementById('route-desc').value.trim(),
-    difficulty:       document.getElementById('route-diff').value,
-    trail_type:       document.getElementById('route-trail-type').value,
-    route_type_tag:   document.getElementById('route-type-tag').value,
-    surface:          document.getElementById('route-surface').value,
-    ferrata_grade:    document.getElementById('route-ferrata-grade')?.value || null,
+    name:               document.getElementById('route-name').value.trim(),
+    description:        document.getElementById('route-desc').value.trim(),
+    difficulty:         document.getElementById('route-diff').value,
+    trail_type:         document.getElementById('route-trail-type').value,
+    route_type_tag:     document.getElementById('route-type-tag').value,
+    surface:            document.getElementById('route-surface').value,
+    ferrata_grade:      document.getElementById('route-ferrata-grade')?.value || null,
     hazards,
-    distance_km:      routeStats.distance,
-    duration_min:     routeStats.duration,
-    elevation_gain_m: routeStats.elevGain,
-    elevation_loss_m: routeStats.elevLoss,
-    max_elevation_m:  routeStats.maxElev,
-    min_elevation_m:  routeStats.minElev,
-    avg_slope_pct:    routeStats.avgSlope,
-    max_slope_asc_pct:  routeStats.maxSlopeAsc !== null
-                        ? Math.round(routeStats.maxSlopeAsc * 10) / 10 : null,
-    max_slope_desc_pct: routeStats.maxSlopeDesc !== null
-                        ? Math.round(routeStats.maxSlopeDesc * 10) / 10 : null,
-    waypoints: waypoints.map(({ lat, lng, name }) => ({ lat, lng, name })),
-    geometry: routeGeometry,
+    distance_km:        routeStats.distance,
+    duration_min:       routeStats.duration,
+    elevation_gain_m:   routeStats.elevGain,
+    elevation_loss_m:   routeStats.elevLoss,
+    max_elevation_m:    routeStats.maxElev,
+    min_elevation_m:    routeStats.minElev,
+    avg_slope_pct:      routeStats.avgSlope,
+    max_slope_asc_pct:  routeStats.maxSlopeAsc  !== null ? Math.round(routeStats.maxSlopeAsc  * 10) / 10 : null,
+    max_slope_desc_pct: routeStats.maxSlopeDesc !== null ? Math.round(routeStats.maxSlopeDesc * 10) / 10 : null,
+    waypoints:          waypoints.map(({ lat, lng, name }) => ({ lat, lng, name })),
+    geometry:           routeGeometry,
   };
 
+  // Use PUT when editing an existing route, POST for new
+  const editId  = window.PRELOAD_ROUTE?.id;
+  const url     = editId ? `/api/routes/${editId}` : '/api/routes';
+  const method  = editId ? 'PUT' : 'POST';
+
   try {
-    const res = await fetch('/api/routes', {
-      method: 'POST',
+    const res  = await fetch(url, {
+      method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -496,12 +611,12 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
       window.location.href = `/routes/${data.id}`;
     } else {
       alert('Errore: ' + (data.error || 'sconosciuto'));
-      btn.disabled = false;
+      btn.disabled  = false;
       btn.innerHTML = '<i class="bi bi-floppy me-1"></i>Salva percorso';
     }
   } catch {
     alert('Errore di rete.');
-    btn.disabled = false;
+    btn.disabled  = false;
     btn.innerHTML = '<i class="bi bi-floppy me-1"></i>Salva percorso';
   }
 });
@@ -509,12 +624,12 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
 // ── Load existing route ───────────────────────────────────────────────────
 
 async function loadExistingRoute(route) {
-  document.getElementById('route-name').value = route.name || '';
-  document.getElementById('route-desc').value = route.description || '';
-  document.getElementById('route-diff').value = route.difficulty || 'medium';
+  document.getElementById('route-name').value       = route.name || '';
+  document.getElementById('route-desc').value       = route.description || '';
+  document.getElementById('route-diff').value       = route.difficulty || 'medium';
   document.getElementById('route-trail-type').value = route.trail_type || 'E';
-  document.getElementById('route-type-tag').value = route.route_type_tag || 'punto_punto';
-  document.getElementById('route-surface').value = route.surface || 'sentiero';
+  document.getElementById('route-type-tag').value   = route.route_type_tag || 'punto_punto';
+  document.getElementById('route-surface').value    = route.surface || 'sentiero';
   if (route.ferrata_grade) {
     document.getElementById('route-ferrata-grade').value = route.ferrata_grade;
     document.getElementById('ferrata-row').classList.remove('d-none');
@@ -542,6 +657,59 @@ function bindControls() {
     if (!e.target.closest('#search-input') && !e.target.closest('#search-results'))
       document.getElementById('search-results').style.display = 'none';
   });
+}
+
+// ── Spinner & status ──────────────────────────────────────────────────────
+
+function showSpinner(text = 'Calcolo percorso…') {
+  const sp = document.getElementById('map-spinner');
+  const tx = document.getElementById('spinner-text');
+  if (tx) tx.textContent = text;
+  if (sp) sp.style.display = 'flex';
+}
+
+function hideSpinner() {
+  const sp = document.getElementById('map-spinner');
+  if (sp) sp.style.display = 'none';
+}
+
+function setStatus(msg, type = '') {
+  const bar   = document.getElementById('status-bar');
+  const msgEl = document.getElementById('status-msg');
+  if (!bar || !msgEl) return;
+  if (!msg) { bar.classList.add('d-none'); return; }
+  msgEl.textContent = msg;
+  msgEl.className   = `small text-${type || 'muted'}`;
+  bar.classList.remove('d-none');
+}
+
+// ── Geometry utilities ────────────────────────────────────────────────────
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R  = 6371;
+  const dL = (lat2 - lat1) * Math.PI / 180;
+  const dO = (lon2 - lon1) * Math.PI / 180;
+  const a  = Math.sin(dL / 2) ** 2 +
+             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+             Math.sin(dO / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function haversineTotal(wps) {
+  let d = 0;
+  for (let i = 1; i < wps.length; i++) {
+    d += haversine(wps[i - 1].lat, wps[i - 1].lng, wps[i].lat, wps[i].lng);
+  }
+  return d;
+}
+
+// ── Network utilities ─────────────────────────────────────────────────────
+
+function fetchWithTimeout(url, options = {}, timeout = 8000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout))
+  ]);
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────

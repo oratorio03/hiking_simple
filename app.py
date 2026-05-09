@@ -396,6 +396,49 @@ def api_get_route(route_id):
     return jsonify(route.to_dict())
 
 
+@app.route('/api/routes/<int:route_id>', methods=['PUT'])
+@login_required
+def api_update_route(route_id):
+    user  = current_user()
+    route = Route.query.filter_by(id=route_id, user_id=user.id).first_or_404()
+    data  = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data'}), 400
+
+    def _flt(key, default=None):
+        v = data.get(key)
+        try: return round(float(v), 2) if v is not None else default
+        except (TypeError, ValueError): return default
+
+    def _int(key, default=0):
+        v = data.get(key)
+        try: return int(v) if v is not None else default
+        except (TypeError, ValueError): return default
+
+    route.name             = data.get('name', '').strip() or route.name
+    route.description      = data.get('description', '').strip()
+    route.difficulty       = data.get('difficulty', route.difficulty)
+    route.trail_type       = data.get('trail_type', route.trail_type)
+    route.route_type_tag   = data.get('route_type_tag', route.route_type_tag)
+    route.surface          = data.get('surface', route.surface)
+    route.ferrata_grade    = data.get('ferrata_grade') or None
+    route.hazards_json     = json.dumps(data.get('hazards', []))
+    route.distance_km      = _flt('distance_km', route.distance_km)
+    route.elevation_gain_m = _int('elevation_gain_m')
+    route.elevation_loss_m = _int('elevation_loss_m')
+    route.max_elevation_m  = _int('max_elevation_m') or None
+    route.min_elevation_m  = _int('min_elevation_m') or None
+    route.duration_min     = _flt('duration_min', route.duration_min)
+    route.avg_slope_pct    = _flt('avg_slope_pct')
+    route.max_slope_asc_pct  = _flt('max_slope_asc_pct')
+    route.max_slope_desc_pct = _flt('max_slope_desc_pct')
+    route.waypoints_json   = json.dumps(data.get('waypoints', []))
+    if data.get('geometry'):
+        route.geometry_json = json.dumps(data['geometry'])
+    db.session.commit()
+    return jsonify({'id': route.id, 'message': 'Percorso aggiornato'})
+
+
 @app.route('/api/routes/<int:route_id>', methods=['DELETE'])
 @login_required
 def api_delete_route(route_id):

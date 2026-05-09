@@ -27,11 +27,15 @@
   {% if routes %}
   <div class="route-list">
     {% for route in routes %}
-    <a href="{{ url_for('route_detail', route_id=route.id) }}" class="route-card text-decoration-none">
+    <div class="route-card text-decoration-none" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'">
       <div class="route-card-body">
         <div class="d-flex align-items-start justify-content-between mb-1">
           <div class="route-name">{{ route.name }}</div>
-          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
+          <a href="{{ url_for('routes_list', difficulty=route.difficulty) }}"
+             class="diff-badge diff-{{ route.difficulty }} text-decoration-none"
+             onclick="event.stopPropagation()" title="Filtra per questa difficoltà">
+            {{ route.difficulty_label }}
+          </a>
         </div>
         <!-- Trail type + hazard icons -->
         <div class="d-flex flex-wrap gap-1 mb-1">
@@ -61,7 +65,7 @@
           <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
         </div>
       </div>
-    </a>
+    </div>
     {% endfor %}
   </div>
   {% else %}
