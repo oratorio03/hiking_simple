@@ -1,14 +1,15 @@
 // ── Constants ─────────────────────────────────────────────────────────────
-const OSRM          = 'https://router.project-osrm.org/route/v1/foot';
-const NOMIN         = 'https://nominatim.openstreetmap.org';
-const TOPO_API      = 'https://api.opentopodata.org/v1/srtm30m';
+const BROUTER      = 'https://brouter.de/brouter';
+const OSRM         = 'https://router.project-osrm.org/route/v1/foot';
+const NOMIN        = 'https://nominatim.openstreetmap.org';
+const TOPO_API     = 'https://api.opentopodata.org/v1/srtm30m';
 const ELEV_FALLBACK = 'https://api.open-elevation.com/api/v1/lookup';
 
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, elevChart, slopeChart;
 let waypoints     = [];
 let routeGeometry = null;
-let routeMode     = 'osrm';  // 'osrm' | 'direct'
+let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
 let routeStats    = {
   distance: 0, duration: 0,
   elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
@@ -24,17 +25,14 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initMap() {
-  const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-    maxZoom: 19
+  const osmLayer  = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19
   });
   const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>',
-    maxZoom: 17
+    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>', maxZoom: 17
   });
-  const cyclosm = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.cyclosm.org">CyclOSM</a>',
-    maxZoom: 20
+  const cyclosm   = L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.cyclosm.org">CyclOSM</a>', maxZoom: 20
   });
 
   map = L.map('map', { layers: [topoLayer], zoomControl: false });
@@ -53,22 +51,15 @@ function initMap() {
   map.on('click', e => addWaypoint(e.latlng.lat, e.latlng.lng));
 }
 
-// ── Routing mode ──────────────────────────────────────────────────────────
+// ── Route profile selection ───────────────────────────────────────────────
 
-function setRouteMode(mode) {
-  routeMode = mode;
-  const btnOsrm   = document.getElementById('btn-mode-osrm');
-  const btnDirect = document.getElementById('btn-mode-direct');
-  if (mode === 'osrm') {
-    btnOsrm.className   = 'btn btn-sm btn-success';
-    btnDirect.className = 'btn btn-sm btn-outline-secondary';
-  } else {
-    btnOsrm.className   = 'btn btn-sm btn-outline-secondary';
-    btnDirect.className = 'btn btn-sm btn-success';
-  }
-  if (waypoints.length >= 2) {
-    mode === 'osrm' ? calcRoute() : calcRouteDirect();
-  }
+function setRouteProfile(profile) {
+  routeProfile = profile;
+  ['hiking', 'trekking', 'safety'].forEach(p => {
+    const btn = document.getElementById(`btn-prof-${p}`);
+    if (btn) btn.className = `btn btn-sm ${p === profile ? 'btn-success' : 'btn-outline-secondary'}`;
+  });
+  if (waypoints.length >= 2) calcRoute();
 }
 
 // ── Waypoints ─────────────────────────────────────────────────────────────
@@ -90,16 +81,12 @@ async function addWaypoint(lat, lng, name = null) {
     marker.setPopupContent(wp.name);
     refreshMarkerIcons();
     updateWpList();
-    if (waypoints.length >= 2) {
-      routeMode === 'osrm' ? await calcRoute() : calcRouteDirect();
-    }
+    if (waypoints.length >= 2) await calcRoute();
   });
 
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) {
-    routeMode === 'osrm' ? await calcRoute() : calcRouteDirect();
-  }
+  if (waypoints.length >= 2) await calcRoute();
 }
 
 function removeWaypoint(id) {
@@ -109,11 +96,8 @@ function removeWaypoint(id) {
   waypoints.splice(idx, 1);
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) {
-    routeMode === 'osrm' ? calcRoute() : calcRouteDirect();
-  } else {
-    clearRoute();
-  }
+  if (waypoints.length >= 2) calcRoute();
+  else clearRoute();
 }
 
 function clearAll() {
@@ -128,11 +112,8 @@ function undoLast() {
   map.removeLayer(waypoints.pop().marker);
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) {
-    routeMode === 'osrm' ? calcRoute() : calcRouteDirect();
-  } else {
-    clearRoute();
-  }
+  if (waypoints.length >= 2) calcRoute();
+  else clearRoute();
 }
 
 function makeMarker(lat, lng, idx, name) {
@@ -157,13 +138,66 @@ function refreshMarkerIcons() {
   });
 }
 
-// ── OSRM Routing ──────────────────────────────────────────────────────────
+// ── Brouter routing (primary) ─────────────────────────────────────────────
 
 async function calcRoute() {
   if (waypoints.length < 2) return;
   showSpinner('Calcolo percorso…');
   setStatus('', '');
 
+  const lonlats = waypoints.map(w => `${w.lng},${w.lat}`).join('|');
+
+  try {
+    const res  = await fetchWithTimeout(
+      `${BROUTER}?lonlats=${lonlats}&profile=${routeProfile}&alternativeidx=0&format=geojson`,
+      {}, 18000
+    );
+
+    // Brouter returns 500 with plain-text error when no route found
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '');
+      throw new Error(msg || `Brouter HTTP ${res.status}`);
+    }
+
+    const data    = await res.json();
+    const feature = data.features?.[0];
+    if (!feature) throw new Error('No route in response');
+
+    const coords = feature.geometry.coordinates;  // [lon, lat, elev?]
+    const props  = feature.properties;
+
+    routeGeometry       = { type: 'LineString', coordinates: coords };
+    routeStats.distance = parseFloat(props['track-length']) / 1000;
+    routeStats.duration = parseFloat(props['total-time'])   / 60;
+
+    drawRoute();
+    updateStatsBar();
+    updateBtnState();
+    hideSpinner();
+
+    // Elevation is embedded in 3D coords — no external API needed
+    const elevSampled = extractBrouterElevation(coords, props);
+    if (elevSampled) {
+      drawElevChart(elevSampled);
+      drawSlopeChart(routeStats.slopeSeries);
+      updateStatsBar();
+      document.getElementById('chart-panel')?.classList.remove('d-none');
+      const elevStatus = document.getElementById('elev-status');
+      if (elevStatus) elevStatus.style.display = 'none';
+    } else {
+      await fetchElevation();
+    }
+
+  } catch (err) {
+    console.warn('Brouter failed, falling back to OSRM:', err.message);
+    setStatus('Brouter non raggiungibile, uso routing alternativo…', 'muted');
+    await calcRouteOSRM();
+  }
+}
+
+// ── OSRM routing (fallback) ───────────────────────────────────────────────
+
+async function calcRouteOSRM() {
   const coords = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
   try {
     const res  = await fetchWithTimeout(
@@ -172,67 +206,37 @@ async function calcRoute() {
     const data = await res.json();
 
     if (data.code !== 'Ok' || !data.routes.length) {
-      setStatus('Routing non disponibile. Prova la modalità Linea retta.', 'warning');
+      setStatus('Nessun percorso trovato. Sposta i waypoint su sentieri o strade.', 'warning');
       hideSpinner();
       return;
     }
 
-    const r        = data.routes[0];
-    routeGeometry  = r.geometry;
-    const osrmDist = r.distance / 1000;
-
-    // Warn if OSRM route is suspiciously long compared to straight-line distance
-    const straight = haversineTotal(waypoints);
-    if (straight > 0.3 && osrmDist > straight * 2.5) {
-      setStatus(
-        `Percorso calcolato (${osrmDist.toFixed(1)} km) molto più lungo del previsto ` +
-        `(${straight.toFixed(1)} km in linea retta). Prova la modalità Linea retta.`,
-        'warning'
-      );
-    } else {
-      setStatus('', '');
-    }
-
-    routeStats.distance = osrmDist;
+    const r           = data.routes[0];
+    routeGeometry     = r.geometry;
+    routeStats.distance = r.distance / 1000;
     routeStats.duration = r.duration / 60;
 
-    drawRoute(false);
+    setStatus('Brouter non disponibile — percorso alternativo (potrebbe non seguire sentieri).', 'warning');
+    drawRoute();
     updateStatsBar();
     updateBtnState();
     hideSpinner();
     await fetchElevation();
+
   } catch (err) {
     hideSpinner();
-    setStatus('Errore di rete. Controlla la connessione o prova Linea retta.', 'danger');
-    console.error('Routing error', err);
+    setStatus('Impossibile calcolare il percorso. Controlla la connessione.', 'danger');
+    console.error('OSRM fallback failed:', err);
   }
-}
-
-// ── Direct (straight-line) routing ────────────────────────────────────────
-
-function calcRouteDirect() {
-  if (waypoints.length < 2) return;
-  setStatus('Modalità linea retta: distanza euclidea, non percorso reale.', 'muted');
-
-  routeGeometry   = { type: 'LineString', coordinates: waypoints.map(w => [w.lng, w.lat]) };
-  routeStats.distance = haversineTotal(waypoints);
-  // Rough hiking estimate: 4 km/h on open terrain
-  routeStats.duration = (routeStats.distance / 4) * 60;
-
-  drawRoute(true);
-  updateStatsBar();
-  updateBtnState();
-  fetchElevation();
 }
 
 // ── Route drawing ─────────────────────────────────────────────────────────
 
-function drawRoute(dashed = false) {
+function drawRoute() {
   if (routeLayer) map.removeLayer(routeLayer);
-  const style = dashed
-    ? { color: '#198754', weight: 4, opacity: 0.8, dashArray: '8 6', lineCap: 'round' }
-    : { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' };
-  routeLayer = L.geoJSON(routeGeometry, { style }).addTo(map);
+  routeLayer = L.geoJSON(routeGeometry, {
+    style: { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }
+  }).addTo(map);
   map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
 }
 
@@ -251,7 +255,50 @@ function clearRoute() {
   updateBtnState();
 }
 
-// ── Elevation + slope ─────────────────────────────────────────────────────
+// ── Elevation from Brouter 3D coords ─────────────────────────────────────
+
+function extractBrouterElevation(coords, props) {
+  if (!coords.length || coords[0].length < 3) return null;
+
+  const allElevs = coords.map(c => c[2]);
+  if (allElevs.some(e => e == null || isNaN(e))) return null;
+
+  // Accurate stats from the full series
+  routeStats.maxElev = Math.round(Math.max(...allElevs));
+  routeStats.minElev = Math.round(Math.min(...allElevs));
+
+  let gain = 0, loss = 0;
+  for (let i = 1; i < allElevs.length; i++) {
+    const d = allElevs[i] - allElevs[i - 1];
+    if (d > 0) gain += d; else loss += Math.abs(d);
+  }
+  routeStats.elevGain = Math.round(gain);
+  routeStats.elevLoss = Math.round(loss);
+
+  // Sample down to ≤100 points for chart rendering
+  const step    = Math.max(1, Math.floor(allElevs.length / 80));
+  const sampled = allElevs.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== allElevs[allElevs.length - 1]) {
+    sampled.push(allElevs[allElevs.length - 1]);
+  }
+  routeStats.elevSeries = sampled;
+
+  // Slope series from sampled elevations
+  const segDistM = (routeStats.distance * 1000) / (sampled.length - 1);
+  const slopes   = [];
+  for (let i = 1; i < sampled.length; i++) {
+    slopes.push(Math.round(((sampled[i] - sampled[i - 1]) / segDistM) * 1000) / 10);
+  }
+  routeStats.slopeSeries  = slopes;
+  const absSlopes         = slopes.map(Math.abs);
+  routeStats.avgSlope     = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
+  routeStats.maxSlopeAsc  = Math.max(...slopes);
+  routeStats.maxSlopeDesc = Math.min(...slopes);
+
+  return sampled;
+}
+
+// ── Elevation fallback (external APIs, used when Brouter unavailable) ─────
 
 async function fetchElevation() {
   if (!routeGeometry) return;
@@ -266,6 +313,19 @@ async function fetchElevation() {
   const sampled = coords.filter((_, i) => i % step === 0);
   if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
     sampled.push(coords[coords.length - 1]);
+  }
+
+  // If Brouter already embedded elevation, use it
+  if (sampled[0]?.length >= 3 && sampled[0][2] != null) {
+    const elevs = extractBrouterElevation(coords, {});
+    if (elevs) {
+      if (elevStatus) elevStatus.style.display = 'none';
+      drawElevChart(elevs);
+      drawSlopeChart(routeStats.slopeSeries);
+      updateStatsBar();
+      document.getElementById('chart-panel')?.classList.remove('d-none');
+      return;
+    }
   }
 
   let elevs = null;
@@ -293,16 +353,14 @@ async function fetchElevation() {
         body: JSON.stringify({ locations })
       }, 14000);
       const data = await res.json();
-      if (data.results?.length) {
-        elevs = data.results.map(r => r.elevation);
-      }
+      if (data.results?.length) elevs = data.results.map(r => r.elevation);
     } catch (e) {
-      console.warn('Open-Elevation fallback also failed', e);
+      console.warn('Open-Elevation fallback failed', e);
     }
   }
 
   if (!elevs) {
-    if (elevStatus) elevStatus.textContent = 'Dati altimetrici non disponibili (API sovraccarica). Riprova tra poco.';
+    if (elevStatus) elevStatus.textContent = 'Dati altimetrici non disponibili. Riprova tra poco.';
     if (reloadBtn)  reloadBtn.style.display = '';
     return;
   }
@@ -337,8 +395,7 @@ function processElevation(elevs) {
   const segDistM = (routeStats.distance * 1000) / (elevs.length - 1);
   const slopes   = [];
   for (let i = 1; i < elevs.length; i++) {
-    const slope = ((elevs[i] - elevs[i - 1]) / segDistM) * 100;
-    slopes.push(Math.round(slope * 10) / 10);
+    slopes.push(Math.round(((elevs[i] - elevs[i - 1]) / segDistM) * 1000) / 10);
   }
   routeStats.slopeSeries  = slopes;
   const absSlopes         = slopes.map(Math.abs);
@@ -444,10 +501,10 @@ function updateStatsBar() {
   const bar = el('stats-bar');
   if (!bar) return;
 
-  el('stat-dist').textContent = routeStats.distance.toFixed(2);
-  el('stat-dur').textContent  = fmtDuration(routeStats.duration);
-  el('stat-gain').textContent = routeStats.elevGain > 0 ? routeStats.elevGain : '—';
-  el('stat-loss').textContent = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
+  el('stat-dist').textContent    = routeStats.distance.toFixed(2);
+  el('stat-dur').textContent     = fmtDuration(routeStats.duration);
+  el('stat-gain').textContent    = routeStats.elevGain > 0 ? routeStats.elevGain : '—';
+  el('stat-loss').textContent    = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
   el('stat-maxelev').textContent = routeStats.maxElev ?? '—';
   el('stat-minelev').textContent = routeStats.minElev ?? '—';
 
@@ -595,10 +652,9 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
     geometry:           routeGeometry,
   };
 
-  // Use PUT when editing an existing route, POST for new
-  const editId  = window.PRELOAD_ROUTE?.id;
-  const url     = editId ? `/api/routes/${editId}` : '/api/routes';
-  const method  = editId ? 'PUT' : 'POST';
+  const editId = window.PRELOAD_ROUTE?.id;
+  const url    = editId ? `/api/routes/${editId}` : '/api/routes';
+  const method = editId ? 'PUT' : 'POST';
 
   try {
     const res  = await fetch(url, {
@@ -681,26 +737,6 @@ function setStatus(msg, type = '') {
   msgEl.textContent = msg;
   msgEl.className   = `small text-${type || 'muted'}`;
   bar.classList.remove('d-none');
-}
-
-// ── Geometry utilities ────────────────────────────────────────────────────
-
-function haversine(lat1, lon1, lat2, lon2) {
-  const R  = 6371;
-  const dL = (lat2 - lat1) * Math.PI / 180;
-  const dO = (lon2 - lon1) * Math.PI / 180;
-  const a  = Math.sin(dL / 2) ** 2 +
-             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-             Math.sin(dO / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function haversineTotal(wps) {
-  let d = 0;
-  for (let i = 1; i < wps.length; i++) {
-    d += haversine(wps[i - 1].lat, wps[i - 1].lng, wps[i].lat, wps[i].lng);
-  }
-  return d;
 }
 
 // ── Network utilities ─────────────────────────────────────────────────────

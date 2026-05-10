@@ -45,17 +45,21 @@
            style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999;max-height:200px;overflow-y:auto"></div>
     </div>
 
-    <!-- Routing mode + undo/clear -->
+    <!-- Trail profile + undo/clear -->
     <div class="border-bottom">
       <div class="d-flex gap-1 px-3 py-2 bg-light align-items-center flex-wrap">
-        <span class="text-muted small me-1">Modalità:</span>
-        <button id="btn-mode-osrm" class="btn btn-sm btn-success" onclick="setRouteMode('osrm')"
-                title="Calcola il percorso reale su sentieri/strade (via OSRM)">
+        <span class="text-muted small me-1">Profilo:</span>
+        <button id="btn-prof-hiking" class="btn btn-sm btn-success" onclick="setRouteProfile('hiking')"
+                title="Sentieri segnalati CAI/OSM — preferisce highway=path/track con sac_scale">
           <i class="bi bi-signpost-split me-1"></i>Sentiero
         </button>
-        <button id="btn-mode-direct" class="btn btn-sm btn-outline-secondary" onclick="setRouteMode('direct')"
-                title="Collega i punti in linea retta (utile per percorsi fuori sentiero o quando OSRM sbaglia)">
-          <i class="bi bi-slash-lg me-1"></i>Linea retta
+        <button id="btn-prof-trekking" class="btn btn-sm btn-outline-secondary" onclick="setRouteProfile('trekking')"
+                title="Trekking — include sentieri non segnalati e piste forestali">
+          <i class="bi bi-tree me-1"></i>Trekking
+        </button>
+        <button id="btn-prof-safety" class="btn btn-sm btn-outline-secondary" onclick="setRouteProfile('safety')"
+                title="Percorso sicuro — privilegia strade e sentieri ben mantenuti, evita esposizioni">
+          <i class="bi bi-shield-check me-1"></i>Sicuro
         </button>
         <button id="btn-undo" class="btn btn-sm btn-outline-secondary ms-auto" disabled title="Rimuovi ultimo waypoint">
           <i class="bi bi-arrow-counterclockwise"></i>
