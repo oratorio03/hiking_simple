@@ -7,11 +7,22 @@ import json
 import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'hiking-dev-key-change-in-prod')
+secret_key = os.environ.get('SECRET_KEY')
+if not secret_key:
+    if os.environ.get('RENDER') or os.environ.get('FLASK_ENV') == 'production':
+        raise RuntimeError('SECRET_KEY environment variable is required in production.')
+    secret_key = 'hiking-dev-key-change-in-prod'
+
+app.config['SECRET_KEY'] = secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hiking.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
+
+def init_db():
+    os.makedirs(app.instance_path, exist_ok=True)
+    db.create_all()
 
 
 # ── Models ─────────────────────────────────────────────────────────────────
@@ -488,7 +499,9 @@ def sw():
     return send_from_directory('static', 'sw.js', mimetype='application/javascript')
 
 
+with app.app_context():
+    init_db()
+
+
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(debug=True, host='0.0.0.0', port=5000)

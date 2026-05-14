@@ -1,6 +1,5 @@
 const CACHE = 'hikepath-v1';
 const PRECACHE = [
-  '/',
   '/static/css/style.css',
   '/static/js/app.js',
   '/static/js/map.js',
@@ -24,20 +23,26 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Network-first for API and map tiles; cache-first for static assets
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/api/') || url.hostname !== location.hostname) {
-    return; // pass through
+
+  if (
+    e.request.method !== 'GET' ||
+    url.hostname !== location.hostname ||
+    url.pathname.startsWith('/api/') ||
+    !url.pathname.startsWith('/static/')
+  ) {
+    return;
   }
+
   e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        if (res.ok && e.request.method === 'GET') {
+    caches.match(e.request).then(cached =>
+      cached || fetch(e.request).then(res => {
+        if (res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
       })
-      .catch(() => caches.match(e.request))
+    )
   );
 });
