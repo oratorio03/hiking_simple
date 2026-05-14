@@ -9,6 +9,7 @@ const VISUAL_SLOPE_CLAMP_PCT = 50;
 
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, elevChart, slopeChart;
+let chartHoverMarker = null;
 let waypoints     = [];
 let routeGeometry = null;
 let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
@@ -244,6 +245,7 @@ function drawRoute() {
 
 function clearRoute() {
   if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+  clearChartRouteMarker();
   routeGeometry = null;
   routeStats = {
     distance: 0, duration: 0,
@@ -465,6 +467,77 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function bindChartRouteMarker(chart, values, valueLabel, valueUnit) {
+  chart.options.onHover = (event, elements) => {
+    if (!elements.length) return;
+    const idx = elements[0].index;
+    showChartRouteMarker(idx, values.length, {
+      value: values[idx],
+      label: valueLabel,
+      unit: valueUnit
+    }, false);
+  };
+  chart.options.onClick = (event, elements) => {
+    if (!elements.length) return;
+    const idx = elements[0].index;
+    showChartRouteMarker(idx, values.length, {
+      value: values[idx],
+      label: valueLabel,
+      unit: valueUnit
+    }, true);
+  };
+  chart.update();
+}
+
+function showChartRouteMarker(index, totalPoints, metric, centerMap = false) {
+  const routePoint = getRoutePointForChartIndex(index, totalPoints);
+  if (!routePoint) return;
+
+  const { coord, ratio } = routePoint;
+  const lat = coord[1];
+  const lng = coord[0];
+  if (lat == null || lng == null) return;
+
+  const km = routeStats.distance ? routeStats.distance * ratio : 0;
+  const elev = coord[2] ?? routeStats.elevSeries?.[index];
+  const value = Number.isFinite(metric.value) ? metric.value : null;
+  const valueText = value == null
+    ? ''
+    : `<br>${metric.label}: ${value > 0 && metric.unit === '%' ? '+' : ''}${value.toFixed(1)}${metric.unit}`;
+  const elevText = Number.isFinite(elev) ? `<br>Quota: ${Math.round(elev)} m` : '';
+
+  if (chartHoverMarker) map.removeLayer(chartHoverMarker);
+  chartHoverMarker = L.circleMarker([lat, lng], {
+    radius: 9,
+    color: '#fff',
+    weight: 3,
+    fillColor: '#dc3545',
+    fillOpacity: 0.95
+  }).addTo(map);
+  chartHoverMarker.bindPopup(`Km circa: ${km.toFixed(2)}${valueText}${elevText}`).openPopup();
+
+  if (centerMap) map.panTo([lat, lng]);
+}
+
+function getRoutePointForChartIndex(index, totalPoints) {
+  const coords = routeGeometry?.coordinates;
+  if (!coords || !coords.length || !totalPoints) return null;
+
+  const ratio = totalPoints <= 1 ? 0 : index / (totalPoints - 1);
+  const routeIndex = Math.max(0, Math.min(
+    coords.length - 1,
+    Math.round(ratio * (coords.length - 1))
+  ));
+
+  return { coord: coords[routeIndex], ratio };
+}
+
+function clearChartRouteMarker() {
+  if (!chartHoverMarker || !map) return;
+  map.removeLayer(chartHoverMarker);
+  chartHoverMarker = null;
+}
+
 function drawElevChart(elevs) {
   const canvas = document.getElementById('elev-chart');
   if (!canvas) return;
@@ -500,6 +573,7 @@ function drawElevChart(elevs) {
       }
     }
   });
+  bindChartRouteMarker(elevChart, elevs, 'Quota', ' m');
 }
 
 function drawSlopeChart(slopes) {
@@ -568,6 +642,7 @@ function drawSlopeChart(slopes) {
       }
     }
   });
+  bindChartRouteMarker(slopeChart, visualSlopes, 'Pendenza', '%');
 }
 
 // ── Stats bar ─────────────────────────────────────────────────────────────
