@@ -4,6 +4,8 @@ const OSRM         = 'https://router.project-osrm.org/route/v1/foot';
 const NOMIN        = 'https://nominatim.openstreetmap.org';
 const TOPO_API     = 'https://api.opentopodata.org/v1/srtm30m';
 const ELEV_FALLBACK = 'https://api.open-elevation.com/api/v1/lookup';
+const MIN_SLOPE_SEGMENT_M = 25;
+const VISUAL_SLOPE_CLAMP_PCT = 50;
 
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, elevChart, slopeChart;
@@ -14,7 +16,7 @@ let routeStats    = {
   distance: 0, duration: 0,
   elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
   avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
-  elevSeries: [], slopeSeries: []
+  elevSeries: [], slopeSeries: [], visualSlopeSeries: []
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -247,7 +249,7 @@ function clearRoute() {
     distance: 0, duration: 0,
     elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
     avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
-    elevSeries: [], slopeSeries: []
+    elevSeries: [], slopeSeries: [], visualSlopeSeries: []
   };
   document.getElementById('stats-bar')?.classList.add('d-none');
   document.getElementById('chart-panel')?.classList.add('d-none');
@@ -283,17 +285,7 @@ function extractBrouterElevation(coords, props) {
   }
   routeStats.elevSeries = sampled;
 
-  // Slope series from sampled elevations
-  const segDistM = (routeStats.distance * 1000) / (sampled.length - 1);
-  const slopes   = [];
-  for (let i = 1; i < sampled.length; i++) {
-    slopes.push(Math.round(((sampled[i] - sampled[i - 1]) / segDistM) * 1000) / 10);
-  }
-  routeStats.slopeSeries  = slopes;
-  const absSlopes         = slopes.map(Math.abs);
-  routeStats.avgSlope     = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
-  routeStats.maxSlopeAsc  = Math.max(...slopes);
-  routeStats.maxSlopeDesc = Math.min(...slopes);
+  updateSlopeStats(coords, allElevs);
 
   return sampled;
 }
@@ -368,7 +360,7 @@ async function fetchElevation() {
   if (elevStatus) elevStatus.style.display = 'none';
   if (reloadBtn)  reloadBtn.style.display  = 'none';
 
-  processElevation(elevs);
+  processElevation(elevs, sampled);
   drawElevChart(elevs);
   drawSlopeChart(routeStats.slopeSeries);
   updateStatsBar();
@@ -379,7 +371,7 @@ function reloadElevation() {
   fetchElevation();
 }
 
-function processElevation(elevs) {
+function processElevation(elevs, coords = null) {
   routeStats.elevSeries = elevs;
   routeStats.maxElev    = Math.round(Math.max(...elevs));
   routeStats.minElev    = Math.round(Math.min(...elevs));
@@ -392,19 +384,86 @@ function processElevation(elevs) {
   routeStats.elevGain = Math.round(gain);
   routeStats.elevLoss = Math.round(loss);
 
-  const segDistM = (routeStats.distance * 1000) / (elevs.length - 1);
-  const slopes   = [];
-  for (let i = 1; i < elevs.length; i++) {
-    slopes.push(Math.round(((elevs[i] - elevs[i - 1]) / segDistM) * 1000) / 10);
-  }
-  routeStats.slopeSeries  = slopes;
-  const absSlopes         = slopes.map(Math.abs);
-  routeStats.avgSlope     = Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10;
-  routeStats.maxSlopeAsc  = Math.max(...slopes);
-  routeStats.maxSlopeDesc = Math.min(...slopes);
+  updateSlopeStats(coords, elevs);
 }
 
 // ── Charts ────────────────────────────────────────────────────────────────
+
+function updateSlopeStats(coords, elevs) {
+  const rawSlopes = buildSlopeSeries(coords, elevs);
+  routeStats.slopeSeries = rawSlopes;
+  routeStats.visualSlopeSeries = buildVisualSlopeSeries(rawSlopes);
+
+  const statsSlopes = routeStats.visualSlopeSeries.length ? routeStats.visualSlopeSeries : rawSlopes;
+  const absSlopes = statsSlopes.map(Math.abs);
+  routeStats.avgSlope = absSlopes.length
+    ? Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10
+    : null;
+  routeStats.maxSlopeAsc = statsSlopes.length ? Math.max(...statsSlopes) : null;
+  routeStats.maxSlopeDesc = statsSlopes.length ? Math.min(...statsSlopes) : null;
+}
+
+function buildSlopeSeries(coords, elevs) {
+  if (!elevs || elevs.length < 2) return [];
+
+  const slopes = [];
+  let distBucket = 0;
+  let elevBucket = 0;
+
+  for (let i = 1; i < elevs.length; i++) {
+    const segDistM = coords && coords[i - 1] && coords[i]
+      ? haversineMeters(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0])
+      : (routeStats.distance * 1000) / (elevs.length - 1);
+
+    if (!segDistM || !isFinite(segDistM)) continue;
+
+    distBucket += segDistM;
+    elevBucket += elevs[i] - elevs[i - 1];
+
+    if (distBucket < MIN_SLOPE_SEGMENT_M && i < elevs.length - 1) continue;
+
+    slopes.push(Math.round((elevBucket / distBucket) * 1000) / 10);
+    distBucket = 0;
+    elevBucket = 0;
+  }
+
+  return slopes;
+}
+
+function buildVisualSlopeSeries(slopes) {
+  const smoothed = smoothSeries(slopes, 3);
+  // Visual-only clamp: keeps the chart readable when elevation noise creates unrealistic spikes.
+  return smoothed.map(s => Math.max(-VISUAL_SLOPE_CLAMP_PCT, Math.min(VISUAL_SLOPE_CLAMP_PCT, s)));
+}
+
+function smoothSeries(values, windowSize = 3) {
+  if (!values.length || windowSize <= 1) return values;
+  const radius = Math.floor(windowSize / 2);
+  return values.map((_, i) => {
+    const start = Math.max(0, i - radius);
+    const end = Math.min(values.length, i + radius + 1);
+    const slice = values.slice(start, end);
+    return Math.round((slice.reduce((a, b) => a + b, 0) / slice.length) * 10) / 10;
+  });
+}
+
+function slopeColor(slope, alpha = 0.85) {
+  const abs = Math.abs(slope);
+  if (abs < 10) return slope >= 0 ? `rgba(25,135,84,${alpha})` : `rgba(13,110,253,${alpha})`;
+  if (abs < 20) return `rgba(255,193,7,${alpha})`;
+  if (abs < 30) return `rgba(253,126,20,${alpha})`;
+  return `rgba(220,53,69,${alpha})`;
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function drawElevChart(elevs) {
   const canvas = document.getElementById('elev-chart');
@@ -448,45 +507,62 @@ function drawSlopeChart(slopes) {
   if (!canvas || !slopes.length) return;
   if (slopeChart) slopeChart.destroy();
 
-  const colors = slopes.map(s => {
-    const abs = Math.abs(s);
-    if (abs < 10) return s >= 0 ? 'rgba(25,135,84,.75)' : 'rgba(13,110,253,.75)';
-    if (abs < 20) return 'rgba(255,193,7,.85)';
-    if (abs < 30) return 'rgba(253,126,20,.9)';
-    return 'rgba(220,53,69,.9)';
-  });
+  const visualSlopes = routeStats.visualSlopeSeries.length ? routeStats.visualSlopeSeries : slopes;
+  const labels = visualSlopes.map((_, i) =>
+    ((routeStats.distance * i) / Math.max(1, visualSlopes.length - 1)).toFixed(1)
+  );
 
   slopeChart = new Chart(canvas, {
-    type: 'bar',
+    type: 'line',
     data: {
-      labels: slopes.map(() => ''),
-      datasets: [{
-        data: slopes,
-        backgroundColor: colors,
-        borderWidth: 0,
-        barPercentage: 1.0,
-        categoryPercentage: 1.0
-      }]
+      labels,
+      datasets: [
+        {
+          data: visualSlopes,
+          fill: true,
+          backgroundColor: 'rgba(25,135,84,.08)',
+          borderColor: '#198754',
+          segment: {
+            borderColor: ctx => slopeColor(ctx.p1.parsed.y, 0.95)
+          },
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          tension: 0.28
+        },
+        {
+          data: visualSlopes.map(() => 0),
+          borderColor: 'rgba(108,117,125,.35)',
+          borderWidth: 1,
+          pointRadius: 0,
+          fill: false
+        }
+      ]
     },
     options: {
       responsive: true,
       plugins: {
         legend: { display: false },
         tooltip: {
+          filter: item => item.datasetIndex === 0,
           callbacks: {
             label: ctx => {
               const v   = ctx.parsed.y;
               const abs = Math.abs(v);
               const lbl = abs < 10 ? 'dolce' : abs < 20 ? 'moderata' : abs < 30 ? 'ripida' : 'molto ripida';
-              return `${v > 0 ? '+' : ''}${v.toFixed(1)}%  (${lbl})`;
+              const raw = slopes[ctx.dataIndex];
+              const clamped = raw != null && Math.abs(raw) > VISUAL_SLOPE_CLAMP_PCT ? ' visualizzata' : '';
+              return `${v > 0 ? '+' : ''}${v.toFixed(1)}%${clamped}  (${lbl})`;
             }
           }
         }
       },
       scales: {
-        x: { display: false },
+        x: { title: { display: true, text: 'km' }, ticks: { maxTicksLimit: 5 } },
         y: {
           title: { display: true, text: 'Pendenza (%)' },
+          suggestedMin: -VISUAL_SLOPE_CLAMP_PCT,
+          suggestedMax: VISUAL_SLOPE_CLAMP_PCT,
           ticks: { callback: v => `${v > 0 ? '+' : ''}${v}%` }
         }
       }
