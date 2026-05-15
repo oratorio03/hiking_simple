@@ -2,16 +2,18 @@
 const BROUTER      = 'https://brouter.de/brouter';
 const OSRM         = 'https://router.project-osrm.org/route/v1/foot';
 const NOMIN        = 'https://nominatim.openstreetmap.org';
+const OVERPASS     = 'https://overpass-api.de/api/interpreter';
 const TOPO_API     = 'https://api.opentopodata.org/v1/srtm30m';
 const ELEV_FALLBACK = 'https://api.open-elevation.com/api/v1/lookup';
 const MIN_SLOPE_SEGMENT_M = 25;
 const VISUAL_SLOPE_CLAMP_PCT = 50;
 
 // ── State ─────────────────────────────────────────────────────────────────
-let map, routeLayer, elevChart, slopeChart;
+let map, routeLayer, osmTrailsLayer, elevChart, slopeChart;
 let chartHoverMarker = null;
 let waypoints     = [];
 let routeGeometry = null;
+let osmTrailsVisible = false;
 let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
 let routeStats    = {
   distance: 0, duration: 0,
@@ -241,6 +243,129 @@ function drawRoute() {
     style: { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round', lineJoin: 'round' }
   }).addTo(map);
   map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+}
+
+// ── Visible OSM trails layer ──────────────────────────────────────────────
+
+async function toggleOsmTrails() {
+  const btn = document.getElementById('btn-osm-trails');
+
+  if (osmTrailsVisible) {
+    if (osmTrailsLayer) map.removeLayer(osmTrailsLayer);
+    osmTrailsVisible = false;
+    if (btn) {
+      btn.className = 'btn btn-sm btn-outline-success w-100';
+      btn.innerHTML = '<i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili';
+    }
+    setStatus('', '');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Carico sentieri OSM...';
+  }
+  setStatus('Caricamento sentieri OSM nella zona visibile...', 'muted');
+
+  try {
+    const geojson = await fetchVisibleOsmTrails();
+    if (osmTrailsLayer) map.removeLayer(osmTrailsLayer);
+
+    osmTrailsLayer = L.geoJSON(geojson, {
+      style: feature => osmTrailStyle(feature.properties || {}),
+      onEachFeature: (feature, layer) => {
+        layer.bindPopup(osmTrailPopup(feature.properties || {}));
+      }
+    }).addTo(map);
+
+    osmTrailsVisible = true;
+    if (btn) {
+      btn.disabled = false;
+      btn.className = 'btn btn-sm btn-success w-100';
+      btn.innerHTML = '<i class="bi bi-eye-slash me-1"></i>Nascondi sentieri OSM';
+    }
+    setStatus(`${geojson.features.length} sentieri OSM caricati nella zona visibile.`, 'success');
+  } catch (err) {
+    console.warn('OSM trails load failed:', err);
+    if (btn) {
+      btn.disabled = false;
+      btn.className = 'btn btn-sm btn-outline-success w-100';
+      btn.innerHTML = '<i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili';
+    }
+    setStatus('Impossibile caricare i sentieri OSM. Riduci lo zoom o riprova tra poco.', 'warning');
+  }
+}
+
+async function fetchVisibleOsmTrails() {
+  const b = map.getBounds();
+  const bbox = [
+    b.getSouth().toFixed(6),
+    b.getWest().toFixed(6),
+    b.getNorth().toFixed(6),
+    b.getEast().toFixed(6)
+  ].join(',');
+
+  const query = `
+    [out:json][timeout:20];
+    (
+      way["highway"="path"](${bbox});
+      way["highway"="footway"](${bbox});
+      way["highway"="track"](${bbox});
+    );
+    out tags geom;
+  `;
+
+  const res = await fetchWithTimeout(OVERPASS, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: new URLSearchParams({ data: query })
+  }, 25000);
+
+  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+  return overpassToGeoJson(await res.json());
+}
+
+function overpassToGeoJson(data) {
+  const features = (data.elements || [])
+    .filter(el => el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2)
+    .map(el => ({
+      type: 'Feature',
+      properties: el.tags || {},
+      geometry: {
+        type: 'LineString',
+        coordinates: el.geometry.map(p => [p.lon, p.lat])
+      }
+    }));
+
+  return { type: 'FeatureCollection', features };
+}
+
+function osmTrailStyle(tags) {
+  const color = tags.highway === 'track' ? '#8b5e34' : tags.highway === 'footway' ? '#0d6efd' : '#6f42c1';
+  return {
+    color,
+    weight: 3,
+    opacity: 0.75,
+    dashArray: tags.highway === 'track' ? '6 4' : null
+  };
+}
+
+function osmTrailPopup(tags) {
+  const rows = [
+    ['Nome', tags.name],
+    ['highway', tags.highway],
+    ['sac_scale', tags.sac_scale],
+    ['surface', tags.surface],
+    ['trail_visibility', tags.trail_visibility],
+    ['smoothness', tags.smoothness],
+    ['wheelchair', tags.wheelchair],
+    ['incline', tags.incline]
+  ].filter(([, value]) => value);
+
+  if (!rows.length) return '<strong>Sentiero OSM</strong>';
+  return rows.map(([label, value], i) =>
+    `${i === 0 ? '<strong>' : ''}${escapeHtml(label)}: ${escapeHtml(value)}${i === 0 ? '</strong>' : ''}`
+  ).join('<br>');
 }
 
 function clearRoute() {

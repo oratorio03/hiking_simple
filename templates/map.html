@@ -68,6 +68,11 @@
           <i class="bi bi-trash"></i>
         </button>
       </div>
+      <div class="px-3 pb-2 bg-light">
+        <button id="btn-osm-trails" class="btn btn-sm btn-outline-success w-100" onclick="toggleOsmTrails()">
+          <i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili
+        </button>
+      </div>
 
       <!-- Status message -->
       <div id="status-bar" class="px-3 pb-2 d-none">
@@ -124,6 +129,11 @@
     <div class="p-3 border-top">
       <form id="save-form">
         <div class="mb-2">
+          <div class="fw-semibold small">Dettagli per il salvataggio</div>
+          <div class="text-muted small">Questi dati descrivono il percorso salvato: non filtrano la mappa.</div>
+        </div>
+
+        <div class="mb-2">
           <input type="text" id="route-name" class="form-control form-control-sm fw-semibold"
                  placeholder="Nome percorso *" required maxlength="200">
         </div>
@@ -136,7 +146,7 @@
         <div class="row g-2 mb-2">
           <div class="col-7">
             <div class="d-flex align-items-center gap-1 mb-1">
-              <label class="form-label form-label-sm mb-0 fw-semibold small">Scala CAI</label>
+              <label class="form-label form-label-sm mb-0 fw-semibold small">Scala CAI del percorso</label>
               <button type="button" class="btn btn-link btn-sm p-0 text-muted" style="font-size:.7rem"
                       data-bs-toggle="modal" data-bs-target="#caiModal">
                 <i class="bi bi-info-circle"></i>
@@ -169,7 +179,7 @@
         <!-- Surface + difficulty -->
         <div class="row g-2 mb-2">
           <div class="col-7">
-            <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie</label>
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie prevalente</label>
             <select id="route-surface" class="form-select form-select-sm">
               <option value="sentiero">Sentiero segnalato</option>
               <option value="sterrato">Sterrato / mulattiera</option>
@@ -179,7 +189,7 @@
             </select>
           </div>
           <div class="col-5">
-            <label class="form-label form-label-sm mb-1 fw-semibold small">Difficoltà</label>
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Livello consigliato</label>
             <select id="route-diff" class="form-select form-select-sm">
               <option value="easy">Facile</option>
               <option value="medium" selected>Medio</option>
@@ -206,7 +216,7 @@
         <!-- Hazards -->
         <div class="mb-3">
           <label class="form-label form-label-sm mb-1 fw-semibold small">
-            Pericolosità
+            Attenzioni sul percorso
             <span class="text-muted fw-normal">(appariranno come badge sulla scheda percorso)</span>
           </label>
           <div class="hazard-check-grid">
