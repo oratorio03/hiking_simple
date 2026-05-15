@@ -1,4 +1,4 @@
-const CACHE = 'hikepath-v3';
+const CACHE = 'hikepath-v5';
 const PRECACHE = [
   '/static/css/style.css',
   '/static/js/app.js',
