@@ -6,6 +6,8 @@ const OVERPASS     = 'https://overpass-api.de/api/interpreter';
 const TOPO_API     = 'https://api.opentopodata.org/v1/srtm30m';
 const ELEV_FALLBACK = 'https://api.open-elevation.com/api/v1/lookup';
 const MIN_SLOPE_SEGMENT_M = 25;
+const OSM_ELEV_SAMPLE_INTERVAL_M = 40;
+const OSM_RELIABLE_SLOPE_SEGMENT_M = 100;
 const VISUAL_SLOPE_CLAMP_PCT = 50;
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -22,7 +24,9 @@ let routeStats    = {
   distance: 0, duration: 0,
   elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
   avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
-  elevSeries: [], slopeSeries: [], visualSlopeSeries: []
+  elevSeries: [], slopeSeries: [], slopeSeriesRaw: [], slopeSeriesReliable: [],
+  visualSlopeSeries: [], slopeQuality: null, equivalentSlopePct: null,
+  displayedSlopeStats: null
 };
 
 // ── Init ──────────────────────────────────────────────────────────────────
@@ -440,8 +444,13 @@ async function useSelectedOsmTrailAsRoute() {
     maxSlopeAsc: null,
     maxSlopeDesc: null,
     elevSeries: [],
+    slopeSeriesRaw: [],
+    slopeSeriesReliable: [],
     slopeSeries: [],
-    visualSlopeSeries: []
+    visualSlopeSeries: [],
+    slopeQuality: null,
+    equivalentSlopePct: null,
+    displayedSlopeStats: null
   };
   clearChartRouteMarker();
   document.getElementById('chart-panel')?.classList.add('d-none');
@@ -519,7 +528,9 @@ function clearRoute() {
     distance: 0, duration: 0,
     elevGain: 0, elevLoss: 0, maxElev: null, minElev: null,
     avgSlope: null, maxSlopeAsc: null, maxSlopeDesc: null,
-    elevSeries: [], slopeSeries: [], visualSlopeSeries: []
+    elevSeries: [], slopeSeries: [], slopeSeriesRaw: [], slopeSeriesReliable: [],
+    visualSlopeSeries: [], slopeQuality: null, equivalentSlopePct: null,
+    displayedSlopeStats: null
   };
   document.getElementById('stats-bar')?.classList.add('d-none');
   document.getElementById('chart-panel')?.classList.add('d-none');
@@ -576,12 +587,8 @@ async function fetchElevation(options = {}) {
   if (elevStatus) { elevStatus.textContent = loadingText; elevStatus.style.display = ''; }
   if (reloadBtn)  reloadBtn.style.display = 'none';
 
-  const coords  = routeGeometry.coordinates;
-  const step    = Math.max(1, Math.floor(coords.length / 50));
-  const sampled = coords.filter((_, i) => i % step === 0);
-  if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
-    sampled.push(coords[coords.length - 1]);
-  }
+  const coords = routeGeometry.coordinates;
+  const sampled = getElevationSampleCoords(coords);
 
   // If Brouter already embedded elevation, use it
   if (sampled[0]?.length >= 3 && sampled[0][2] != null) {
@@ -640,12 +647,19 @@ async function fetchElevation(options = {}) {
   if (reloadBtn)  reloadBtn.style.display  = 'none';
   if (!isCurrentAnalysis()) return false;
 
-  processElevation(elevs, sampled);
+  processElevation(elevs, sampled, { source: routeSource });
   drawElevChart(elevs);
   drawSlopeChart(routeStats.slopeSeries);
   updateStatsBar();
   document.getElementById('chart-panel')?.classList.remove('d-none');
-  if (successText) setStatus(successText, 'success');
+  if (successText) {
+    const qualityText = routeStats.slopeQuality === 'rumorosa'
+      ? ' Pendenza reale non affidabile: dati altimetrici rumorosi. Mostro pendenza equivalente netta.'
+      : routeStats.slopeQuality
+        ? ' Pendenza stimata da dati altimetrici, possibili errori.'
+        : '';
+    setStatus(`${successText}${qualityText}`, 'success');
+  }
   return true;
 }
 
@@ -653,39 +667,111 @@ function reloadElevation() {
   fetchElevation();
 }
 
-function processElevation(elevs, coords = null) {
+function getElevationSampleCoords(coords) {
+  if (routeSource === 'osm_single') {
+    return resampleLineStringByDistance(coords, OSM_ELEV_SAMPLE_INTERVAL_M);
+  }
+
+  const step = Math.max(1, Math.floor(coords.length / 50));
+  const sampled = coords.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== coords[coords.length - 1]) {
+    sampled.push(coords[coords.length - 1]);
+  }
+  return sampled;
+}
+
+function resampleLineStringByDistance(coords, intervalM) {
+  if (!coords || coords.length < 2) return coords || [];
+
+  const sampled = [coords[0]];
+  let lastSample = coords[0];
+  let carryM = 0;
+
+  for (let i = 1; i < coords.length; i++) {
+    let segStart = coords[i - 1];
+    const segEnd = coords[i];
+    let segLenM = haversineMeters(segStart[1], segStart[0], segEnd[1], segEnd[0]);
+    if (!segLenM || !isFinite(segLenM)) continue;
+
+    while (carryM + segLenM >= intervalM) {
+      const remainingM = intervalM - carryM;
+      const ratio = remainingM / segLenM;
+      const nextSample = interpolateCoord(segStart, segEnd, ratio);
+      sampled.push(nextSample);
+      lastSample = nextSample;
+      segStart = nextSample;
+      segLenM = haversineMeters(segStart[1], segStart[0], segEnd[1], segEnd[0]);
+      carryM = 0;
+    }
+
+    carryM += segLenM;
+  }
+
+  const end = coords[coords.length - 1];
+  const endGapM = haversineMeters(lastSample[1], lastSample[0], end[1], end[0]);
+  if (endGapM > 1) sampled.push(end);
+  return sampled;
+}
+
+function interpolateCoord(a, b, ratio) {
+  return [
+    a[0] + (b[0] - a[0]) * ratio,
+    a[1] + (b[1] - a[1]) * ratio
+  ];
+}
+
+function processElevation(elevs, coords = null, options = {}) {
+  const isOsm = options.source === 'osm_single';
+  const statsElevs = isOsm ? smoothElevationSeries(elevs, 3) : elevs;
   routeStats.elevSeries = elevs;
-  routeStats.maxElev    = Math.round(Math.max(...elevs));
-  routeStats.minElev    = Math.round(Math.min(...elevs));
+  routeStats.maxElev    = Math.round(Math.max(...statsElevs));
+  routeStats.minElev    = Math.round(Math.min(...statsElevs));
+  routeStats.equivalentSlopePct = calculateEquivalentSlope(statsElevs);
 
   let gain = 0, loss = 0;
-  for (let i = 1; i < elevs.length; i++) {
-    const diff = elevs[i] - elevs[i - 1];
+  for (let i = 1; i < statsElevs.length; i++) {
+    const diff = statsElevs[i] - statsElevs[i - 1];
     if (diff > 0) gain += diff; else loss += Math.abs(diff);
   }
   routeStats.elevGain = Math.round(gain);
   routeStats.elevLoss = Math.round(loss);
 
-  updateSlopeStats(coords, elevs);
+  updateSlopeStats(coords, statsElevs, {
+    rawElevs: elevs,
+    source: options.source
+  });
+}
+
+function calculateEquivalentSlope(elevs) {
+  if (!elevs || elevs.length < 2 || !routeStats.distance) return null;
+  // Net start/end grade: useful as a fallback when real local slope is too noisy,
+  // but it can understate routes with repeated climbs and descents.
+  const netGainM = elevs[elevs.length - 1] - elevs[0];
+  return Math.round((netGainM / (routeStats.distance * 1000)) * 1000) / 10;
 }
 
 // ── Charts ────────────────────────────────────────────────────────────────
 
-function updateSlopeStats(coords, elevs) {
-  const rawSlopes = buildSlopeSeries(coords, elevs);
-  routeStats.slopeSeries = rawSlopes;
-  routeStats.visualSlopeSeries = buildVisualSlopeSeries(rawSlopes);
+function updateSlopeStats(coords, elevs, options = {}) {
+  const isOsm = options.source === 'osm_single';
+  const rawSlopes = buildSlopeSeries(coords, options.rawElevs || elevs, MIN_SLOPE_SEGMENT_M);
+  const reliableSlopes = isOsm
+    ? buildSlopeSeries(coords, elevs, OSM_RELIABLE_SLOPE_SEGMENT_M)
+    : rawSlopes;
 
-  const statsSlopes = routeStats.visualSlopeSeries.length ? routeStats.visualSlopeSeries : rawSlopes;
-  const absSlopes = statsSlopes.map(Math.abs);
-  routeStats.avgSlope = absSlopes.length
-    ? Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10
-    : null;
-  routeStats.maxSlopeAsc = statsSlopes.length ? Math.max(...statsSlopes) : null;
-  routeStats.maxSlopeDesc = statsSlopes.length ? Math.min(...statsSlopes) : null;
+  routeStats.slopeSeriesRaw = rawSlopes;
+  routeStats.slopeSeriesReliable = reliableSlopes;
+  routeStats.slopeSeries = reliableSlopes;
+  routeStats.visualSlopeSeries = buildVisualSlopeSeries(reliableSlopes);
+  routeStats.slopeQuality = assessSlopeQuality(rawSlopes, reliableSlopes, coords, isOsm);
+  routeStats.displayedSlopeStats = buildDisplayedSlopeStats(reliableSlopes, routeStats.slopeQuality, isOsm);
+
+  routeStats.avgSlope = routeStats.displayedSlopeStats?.avg ?? null;
+  routeStats.maxSlopeAsc = routeStats.displayedSlopeStats?.maxAsc ?? null;
+  routeStats.maxSlopeDesc = routeStats.displayedSlopeStats?.maxDesc ?? null;
 }
 
-function buildSlopeSeries(coords, elevs) {
+function buildSlopeSeries(coords, elevs, minSegmentM = MIN_SLOPE_SEGMENT_M) {
   if (!elevs || elevs.length < 2) return [];
 
   const slopes = [];
@@ -702,7 +788,7 @@ function buildSlopeSeries(coords, elevs) {
     distBucket += segDistM;
     elevBucket += elevs[i] - elevs[i - 1];
 
-    if (distBucket < MIN_SLOPE_SEGMENT_M && i < elevs.length - 1) continue;
+    if (distBucket < minSegmentM && i < elevs.length - 1) continue;
 
     slopes.push(Math.round((elevBucket / distBucket) * 1000) / 10);
     distBucket = 0;
@@ -718,6 +804,88 @@ function buildVisualSlopeSeries(slopes) {
   return smoothed.map(s => Math.max(-VISUAL_SLOPE_CLAMP_PCT, Math.min(VISUAL_SLOPE_CLAMP_PCT, s)));
 }
 
+function assessSlopeQuality(rawSlopes, reliableSlopes, coords, isOsm) {
+  if (!isOsm) return null;
+  if (!coords || coords.length < 5 || routeStats.distance < 0.3 || reliableSlopes.length < 2) {
+    return 'limitata';
+  }
+
+  const suspiciousCount = rawSlopes.filter(s => Math.abs(s) > 40).length;
+  const unrealisticCount = rawSlopes.filter(s => Math.abs(s) > VISUAL_SLOPE_CLAMP_PCT).length;
+  const unstableRatio = rawSlopes.length ? unrealisticCount / rawSlopes.length : 0;
+  const suspiciousRatio = rawSlopes.length ? suspiciousCount / rawSlopes.length : 0;
+  const maxRaw = rawSlopes.length ? Math.max(...rawSlopes.map(Math.abs)) : 0;
+  const maxReliable = reliableSlopes.length ? Math.max(...reliableSlopes.map(Math.abs)) : 0;
+
+  if (unstableRatio > 0.2 || suspiciousRatio > 0.35 || maxReliable > 40 ||
+      (maxRaw > 70 && maxRaw > maxReliable * 2.5)) {
+    return 'rumorosa';
+  }
+  return 'stimata';
+}
+
+function buildDisplayedSlopeStats(reliableSlopes, slopeQuality, isOsm) {
+  if (!reliableSlopes.length) {
+    return { usable: false, label: 'non disponibile', avg: null, maxAsc: null, maxDesc: null };
+  }
+
+  if (!isOsm) {
+    const absSlopes = reliableSlopes.map(Math.abs);
+    return {
+      usable: true,
+      label: null,
+      avg: Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10,
+      maxAsc: Math.max(...reliableSlopes),
+      maxDesc: Math.min(...reliableSlopes)
+    };
+  }
+
+  if (slopeQuality === 'rumorosa') {
+    return {
+      usable: false,
+      label: 'dato rumoroso',
+      equivalentSlope: routeStats.equivalentSlopePct,
+      avg: null,
+      maxAsc: null,
+      maxDesc: null
+    };
+  }
+
+  if (slopeQuality === 'limitata') {
+    return {
+      usable: false,
+      label: 'non affidabile',
+      equivalentSlope: routeStats.equivalentSlopePct,
+      avg: null,
+      maxAsc: null,
+      maxDesc: null
+    };
+  }
+
+  const filtered = reliableSlopes.filter(s => Number.isFinite(s) && Math.abs(s) <= 40);
+  if (filtered.length < 2) {
+    return { usable: false, label: 'non affidabile', avg: null, maxAsc: null, maxDesc: null };
+  }
+
+  const positives = filtered.filter(s => s > 0);
+  const negatives = filtered.filter(s => s < 0);
+  const absSlopes = filtered.map(Math.abs);
+  return {
+    usable: true,
+    label: 'stimata',
+    avg: Math.round((absSlopes.reduce((a, b) => a + b, 0) / absSlopes.length) * 10) / 10,
+    maxAsc: positives.length ? percentile(positives, 0.85) : 0,
+    maxDesc: negatives.length ? percentile(negatives, 0.15) : 0
+  };
+}
+
+function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.max(0, Math.min(sorted.length - 1, Math.round((sorted.length - 1) * p)));
+  return Math.round(sorted[idx] * 10) / 10;
+}
+
 function smoothSeries(values, windowSize = 3) {
   if (!values.length || windowSize <= 1) return values;
   const radius = Math.floor(windowSize / 2);
@@ -727,6 +895,14 @@ function smoothSeries(values, windowSize = 3) {
     const slice = values.slice(start, end);
     return Math.round((slice.reduce((a, b) => a + b, 0) / slice.length) * 10) / 10;
   });
+}
+
+function smoothElevationSeries(elevs, windowSize = 3) {
+  if (!elevs.length || windowSize <= 1) return elevs;
+  const smoothed = smoothSeries(elevs, windowSize);
+  smoothed[0] = elevs[0];
+  smoothed[smoothed.length - 1] = elevs[elevs.length - 1];
+  return smoothed;
 }
 
 function isValidRouteGeometry(geometry) {
@@ -977,13 +1153,38 @@ function updateStatsBar() {
   el('stat-loss').textContent    = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
   el('stat-maxelev').textContent = routeStats.maxElev ?? '—';
   el('stat-minelev').textContent = routeStats.minElev ?? '—';
+  const slopeAvgLabel = el('slope-avg-label');
+  const slopeAvgUnit = el('stat-slope-avg-unit');
+  const slopeAscUnit = el('stat-slope-asc-unit');
+  const slopeDescUnit = el('stat-slope-desc-unit');
 
-  if (routeStats.avgSlope !== null) {
+  const displaySlope = routeStats.displayedSlopeStats;
+  if (displaySlope && !displaySlope.usable) {
+    const hasEquivalent = displaySlope.equivalentSlope !== null && displaySlope.equivalentSlope !== undefined;
+    if (slopeAvgLabel) slopeAvgLabel.textContent = hasEquivalent ? 'eq.' : '∅';
+    if (slopeAvgUnit) slopeAvgUnit.style.display = hasEquivalent ? '' : 'none';
+    if (slopeAscUnit) slopeAscUnit.style.display = 'none';
+    if (slopeDescUnit) slopeDescUnit.style.display = 'none';
+    el('stat-slope-avg').textContent  = hasEquivalent
+      ? displaySlope.equivalentSlope.toFixed(1)
+      : displaySlope.label;
+    el('stat-slope-asc').textContent  = 'non affidabile';
+    el('stat-slope-desc').textContent = 'non affidabile';
+    el('slope-avg-span').className    = 'fw-semibold text-muted';
+  } else if (routeStats.avgSlope !== null) {
+    if (slopeAvgLabel) slopeAvgLabel.textContent = '∅';
+    if (slopeAvgUnit) slopeAvgUnit.style.display = '';
+    if (slopeAscUnit) slopeAscUnit.style.display = '';
+    if (slopeDescUnit) slopeDescUnit.style.display = '';
     el('stat-slope-avg').textContent  = routeStats.avgSlope.toFixed(1);
-    el('stat-slope-asc').textContent  = `+${routeStats.maxSlopeAsc.toFixed(1)}`;
-    el('stat-slope-desc').textContent = `${routeStats.maxSlopeDesc.toFixed(1)}`;
+    el('stat-slope-asc').textContent  = routeStats.maxSlopeAsc !== null ? `+${routeStats.maxSlopeAsc.toFixed(1)}` : '—';
+    el('stat-slope-desc').textContent = routeStats.maxSlopeDesc !== null ? `${routeStats.maxSlopeDesc.toFixed(1)}` : '—';
     el('slope-avg-span').className    = `fw-semibold text-${slopeColorClass(routeStats.avgSlope)}`;
   } else {
+    if (slopeAvgLabel) slopeAvgLabel.textContent = '∅';
+    if (slopeAvgUnit) slopeAvgUnit.style.display = '';
+    if (slopeAscUnit) slopeAscUnit.style.display = '';
+    if (slopeDescUnit) slopeDescUnit.style.display = '';
     el('stat-slope-avg').textContent  = '—';
     el('stat-slope-asc').textContent  = '—';
     el('stat-slope-desc').textContent = '—';
@@ -1166,7 +1367,20 @@ function loadSavedRouteStats(route) {
   routeStats.maxSlopeDesc = route.max_slope_desc_pct ?? null;
   routeStats.elevSeries = [];
   routeStats.slopeSeries = [];
+  routeStats.slopeSeriesRaw = [];
+  routeStats.slopeSeriesReliable = [];
   routeStats.visualSlopeSeries = [];
+  routeStats.slopeQuality = null;
+  routeStats.equivalentSlopePct = null;
+  routeStats.displayedSlopeStats = routeStats.avgSlope !== null
+    ? {
+        usable: true,
+        label: null,
+        avg: routeStats.avgSlope,
+        maxAsc: routeStats.maxSlopeAsc,
+        maxDesc: routeStats.maxSlopeDesc
+      }
+    : null;
 }
 
 async function loadExistingRoute(route) {
