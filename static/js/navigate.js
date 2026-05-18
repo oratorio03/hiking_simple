@@ -4,6 +4,7 @@ let navMap, posMarker, posCircle, routeGeoLayer, watchId;
 let isNavigating = false;
 let currentPos = null;
 const route = window.NAV_ROUTE;
+let routeMetrics = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavMap();
@@ -23,7 +24,8 @@ function initNavMap() {
 
   // Draw route
   const geometry = route.geometry;
-  if (geometry) {
+  if (isValidRouteGeometry(geometry)) {
+    routeMetrics = buildRouteMetrics(geometry);
     routeGeoLayer = L.geoJSON(geometry, {
       style: { color: '#198754', weight: 5, opacity: 0.85, lineCap: 'round' }
     }).addTo(navMap);
@@ -42,7 +44,7 @@ function initNavMap() {
       .bindPopup(`<b>${wp.name || 'Punto ' + (i + 1)}</b>`);
   });
 
-  if (!geometry && !waypoints.length) navMap.setView([45.8, 10.0], 9);
+  if (!routeMetrics && !waypoints.length) navMap.setView([45.8, 10.0], 9);
 }
 
 function toggleNavigation() {
@@ -113,9 +115,19 @@ function onPosition(pos) {
 }
 
 function updateHUD(lat, lng, accuracy, speed) {
-  // Distance to destination
   const waypoints = route.waypoints || [];
-  if (waypoints.length > 0) {
+
+  if (routeMetrics) {
+    const progress = getRouteProgress(lat, lng, routeMetrics);
+    const remainingKm = Math.max(0, routeMetrics.totalM - progress.progressM) / 1000;
+    const nextWp = findNextWaypointOnRoute(progress.progressM, waypoints, routeMetrics);
+    const nextKm = nextWp
+      ? Math.max(0, nextWp.progressM - progress.progressM) / 1000
+      : remainingKm;
+
+    document.getElementById('hud-dist').textContent = formatDistance(remainingKm);
+    document.getElementById('hud-wp').textContent = formatDistance(nextKm);
+  } else if (waypoints.length > 0) {
     const dest = findNextWaypoint(lat, lng, waypoints);
     const distToNext = haversine(lat, lng, dest.lat, dest.lng);
     const distToDest = haversine(lat, lng,
@@ -123,16 +135,93 @@ function updateHUD(lat, lng, accuracy, speed) {
       waypoints[waypoints.length - 1].lng
     );
 
-    document.getElementById('hud-dist').textContent =
-      distToDest < 1 ? `${Math.round(distToDest * 1000)}m` : `${distToDest.toFixed(1)}km`;
-    document.getElementById('hud-wp').textContent =
-      distToNext < 1 ? `${Math.round(distToNext * 1000)}m` : `${distToNext.toFixed(1)}km`;
+    document.getElementById('hud-dist').textContent = formatDistance(distToDest);
+    document.getElementById('hud-wp').textContent = formatDistance(distToNext);
   }
 
   document.getElementById('hud-speed').textContent =
     speed != null ? (speed * 3.6).toFixed(1) : '—';
   document.getElementById('hud-acc').textContent =
     accuracy != null ? `±${Math.round(accuracy)}m` : '—';
+}
+
+function isValidRouteGeometry(geometry) {
+  return geometry?.type === 'LineString' &&
+    Array.isArray(geometry.coordinates) &&
+    geometry.coordinates.length >= 2;
+}
+
+function buildRouteMetrics(geometry) {
+  const coords = geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+  const cumulativeM = [0];
+  let totalM = 0;
+
+  for (let i = 1; i < coords.length; i++) {
+    totalM += haversine(coords[i - 1].lat, coords[i - 1].lng, coords[i].lat, coords[i].lng) * 1000;
+    cumulativeM.push(totalM);
+  }
+
+  return { coords, cumulativeM, totalM };
+}
+
+function getRouteProgress(lat, lng, metrics) {
+  let best = { distanceM: Infinity, progressM: 0 };
+  const originLat = lat * Math.PI / 180;
+
+  for (let i = 1; i < metrics.coords.length; i++) {
+    const a = metrics.coords[i - 1];
+    const b = metrics.coords[i];
+    const ax = lngToMeters(a.lng, originLat);
+    const ay = latToMeters(a.lat);
+    const bx = lngToMeters(b.lng, originLat);
+    const by = latToMeters(b.lat);
+    const px = lngToMeters(lng, originLat);
+    const py = latToMeters(lat);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (!lenSq) continue;
+
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+    const projX = ax + t * dx;
+    const projY = ay + t * dy;
+    const distanceM = Math.hypot(px - projX, py - projY);
+    if (distanceM < best.distanceM) {
+      const segmentM = metrics.cumulativeM[i] - metrics.cumulativeM[i - 1];
+      best = {
+        distanceM,
+        progressM: metrics.cumulativeM[i - 1] + segmentM * t
+      };
+    }
+  }
+
+  return best;
+}
+
+function findNextWaypointOnRoute(progressM, waypoints, metrics) {
+  if (!waypoints.length) return null;
+
+  const waypointProgress = waypoints
+    .map(wp => ({
+      wp,
+      progressM: getRouteProgress(wp.lat, wp.lng, metrics).progressM
+    }))
+    .sort((a, b) => a.progressM - b.progressM);
+
+  return waypointProgress.find(item => item.progressM > progressM + 25) ||
+    waypointProgress[waypointProgress.length - 1];
+}
+
+function latToMeters(lat) {
+  return lat * 111320;
+}
+
+function lngToMeters(lng, originLat) {
+  return lng * 111320 * Math.cos(originLat);
+}
+
+function formatDistance(km) {
+  return km < 1 ? `${Math.round(km * 1000)}m` : `${km.toFixed(1)}km`;
 }
 
 function findNextWaypoint(lat, lng, waypoints) {

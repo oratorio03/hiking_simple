@@ -14,6 +14,9 @@ let chartHoverMarker = null;
 let waypoints     = [];
 let routeGeometry = null;
 let osmTrailsVisible = false;
+let selectedOsmTrail = null;
+let routeSource = 'manual'; // 'manual' | 'osm_single' | 'osm_composed'
+let routeAnalysisId = 0;
 let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
 let routeStats    = {
   distance: 0, duration: 0,
@@ -53,7 +56,12 @@ function initMap() {
     () => map.setView([45.8, 10.0], 9)
   );
 
-  map.on('click', e => addWaypoint(e.latlng.lat, e.latlng.lng));
+  map.on('click', handleMapClick);
+}
+
+function handleMapClick(e) {
+  if (routeSource !== 'manual') return;
+  addWaypoint(e.latlng.lat, e.latlng.lng);
 }
 
 // ── Route profile selection ───────────────────────────────────────────────
@@ -64,12 +72,12 @@ function setRouteProfile(profile) {
     const btn = document.getElementById(`btn-prof-${p}`);
     if (btn) btn.className = `btn btn-sm ${p === profile ? 'btn-success' : 'btn-outline-secondary'}`;
   });
-  if (waypoints.length >= 2) calcRoute();
+  if (routeSource === 'manual' && waypoints.length >= 2) calcRoute();
 }
 
 // ── Waypoints ─────────────────────────────────────────────────────────────
 
-async function addWaypoint(lat, lng, name = null) {
+async function addWaypoint(lat, lng, name = null, options = {}) {
   if (!name) name = await reverseGeocode(lat, lng);
 
   const id     = Date.now() + Math.random();
@@ -91,7 +99,7 @@ async function addWaypoint(lat, lng, name = null) {
 
   refreshMarkerIcons();
   updateWpList();
-  if (waypoints.length >= 2) await calcRoute();
+  if (!options.skipRouteCalc && waypoints.length >= 2) await calcRoute();
 }
 
 function removeWaypoint(id) {
@@ -106,10 +114,17 @@ function removeWaypoint(id) {
 }
 
 function clearAll() {
-  waypoints.forEach(w => map.removeLayer(w.marker));
-  waypoints = [];
+  routeAnalysisId += 1;
+  clearManualWaypoints();
+  clearOsmTrailSelection();
+  routeSource = 'manual';
   clearRoute();
   updateWpList();
+}
+
+function clearManualWaypoints() {
+  waypoints.forEach(w => map.removeLayer(w.marker));
+  waypoints = [];
 }
 
 function undoLast() {
@@ -147,6 +162,8 @@ function refreshMarkerIcons() {
 
 async function calcRoute() {
   if (waypoints.length < 2) return;
+  routeSource = 'manual';
+  routeAnalysisId += 1;
   showSpinner('Calcolo percorso…');
   setStatus('', '');
 
@@ -252,6 +269,7 @@ async function toggleOsmTrails() {
 
   if (osmTrailsVisible) {
     if (osmTrailsLayer) map.removeLayer(osmTrailsLayer);
+    clearOsmTrailSelection();
     osmTrailsVisible = false;
     if (btn) {
       btn.className = 'btn btn-sm btn-outline-success w-100';
@@ -274,7 +292,12 @@ async function toggleOsmTrails() {
     osmTrailsLayer = L.geoJSON(geojson, {
       style: feature => osmTrailStyle(feature.properties || {}),
       onEachFeature: (feature, layer) => {
-        layer.bindPopup(osmTrailPopup(feature.properties || {}));
+        layer.on('click', e => {
+          if (e.originalEvent) L.DomEvent.stop(e.originalEvent);
+          selectOsmTrail(feature, layer);
+        });
+        layer.on('popupopen', e => bindOsmTrailPopupActions(e.popup, feature, layer));
+        layer.bindPopup(() => osmTrailPopup(feature, estimateLineLengthKm(feature.geometry)));
       }
     }).addTo(map);
 
@@ -350,25 +373,145 @@ function osmTrailStyle(tags) {
   };
 }
 
-function osmTrailPopup(tags) {
-  const rows = [
-    ['Nome', tags.name],
-    ['highway', tags.highway],
-    ['sac_scale', tags.sac_scale],
-    ['surface', tags.surface],
-    ['trail_visibility', tags.trail_visibility],
-    ['smoothness', tags.smoothness],
-    ['wheelchair', tags.wheelchair],
-    ['incline', tags.incline]
-  ].filter(([, value]) => value);
+function selectedOsmTrailStyle() {
+  return {
+    color: '#dc3545',
+    weight: 7,
+    opacity: 0.95,
+    dashArray: null,
+    lineCap: 'round',
+    lineJoin: 'round'
+  };
+}
 
-  if (!rows.length) return '<strong>Sentiero OSM</strong>';
-  return rows.map(([label, value], i) =>
+function selectOsmTrail(feature, layer) {
+  if (selectedOsmTrail?.layer && selectedOsmTrail.layer !== layer) {
+    selectedOsmTrail.layer.setStyle(osmTrailStyle(selectedOsmTrail.feature.properties || {}));
+  }
+
+  const lengthKm = estimateLineLengthKm(feature.geometry);
+  selectedOsmTrail = { feature, layer, lengthKm };
+  layer.setStyle(selectedOsmTrailStyle());
+  layer.bringToFront?.();
+  setStatus('Sentiero OSM selezionato. Puoi usarlo come percorso dal popup.', 'success');
+  updateBtnState();
+}
+
+function clearOsmTrailSelection() {
+  if (selectedOsmTrail?.layer && osmTrailsLayer?.hasLayer?.(selectedOsmTrail.layer)) {
+    selectedOsmTrail.layer.setStyle(osmTrailStyle(selectedOsmTrail.feature.properties || {}));
+  }
+  selectedOsmTrail = null;
+}
+
+function bindOsmTrailPopupActions(popup, feature, layer) {
+  const el = popup.getElement();
+  const btn = el?.querySelector('[data-action="use-osm-trail"]');
+  if (!btn) return;
+
+  L.DomEvent.disableClickPropagation(btn);
+  btn.addEventListener('click', async e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedOsmTrail || selectedOsmTrail.layer !== layer) {
+      selectOsmTrail(feature, layer);
+    }
+    await useSelectedOsmTrailAsRoute();
+  }, { once: true });
+}
+
+async function useSelectedOsmTrailAsRoute() {
+  if (!selectedOsmTrail?.feature?.geometry) return;
+
+  clearManualWaypoints();
+  routeSource = 'osm_single';
+  routeGeometry = {
+    type: 'LineString',
+    coordinates: selectedOsmTrail.feature.geometry.coordinates
+  };
+  routeStats = {
+    distance: selectedOsmTrail.lengthKm || estimateLineLengthKm(routeGeometry) || 0,
+    duration: null,
+    elevGain: 0,
+    elevLoss: 0,
+    maxElev: null,
+    minElev: null,
+    avgSlope: null,
+    maxSlopeAsc: null,
+    maxSlopeDesc: null,
+    elevSeries: [],
+    slopeSeries: [],
+    visualSlopeSeries: []
+  };
+  clearChartRouteMarker();
+  document.getElementById('chart-panel')?.classList.add('d-none');
+  map.closePopup();
+  const analysisId = ++routeAnalysisId;
+  drawRoute();
+  updateStatsBar();
+  updateWpList();
+  updateBtnState();
+  setStatus('Analisi altimetrica del sentiero OSM...', 'muted');
+
+  const hasElevation = await fetchElevation({
+    loadingText: 'Analisi altimetrica del sentiero OSM...',
+    fallbackText: 'Tentativo con API altimetrica alternativa...',
+    failureText: 'Dati altimetrici non disponibili per questo sentiero OSM.',
+    successText: 'Sentiero OSM usato come percorso.',
+    analysisId
+  });
+
+  if (analysisId !== routeAnalysisId) return;
+  if (!hasElevation) {
+    updateStatsBar();
+    setStatus('Sentiero OSM usato come percorso. Dati altimetrici non disponibili.', 'warning');
+  }
+}
+
+function estimateLineLengthKm(geometry) {
+  const coords = geometry?.coordinates || [];
+  if (coords.length < 2 || !map) return null;
+
+  let meters = 0;
+  for (let i = 1; i < coords.length; i++) {
+    meters += map.distance(
+      [coords[i - 1][1], coords[i - 1][0]],
+      [coords[i][1], coords[i][0]]
+    );
+  }
+  return Math.round((meters / 1000) * 100) / 100;
+}
+
+function osmTrailPopup(feature, lengthKm = null) {
+  const tags = feature?.properties || {};
+  const tagValue = value => value || 'non disponibile';
+  const rows = [
+    ['Nome', tagValue(tags.name)],
+    ['highway', tagValue(tags.highway)],
+    ['sac_scale', tagValue(tags.sac_scale)],
+    ['surface', tagValue(tags.surface)],
+    ['trail_visibility', tagValue(tags.trail_visibility)],
+    ['smoothness', tagValue(tags.smoothness)],
+    ['wheelchair', tagValue(tags.wheelchair)],
+    ['incline', tagValue(tags.incline)],
+    ['Lunghezza stimata', lengthKm !== null ? `${lengthKm.toFixed(2)} km` : 'non disponibile']
+  ];
+
+  const details = rows.map(([label, value], i) =>
     `${i === 0 ? '<strong>' : ''}${escapeHtml(label)}: ${escapeHtml(value)}${i === 0 ? '</strong>' : ''}`
   ).join('<br>');
+
+  return `
+    <div>
+      ${details}
+      <button type="button" class="btn btn-sm btn-success w-100 mt-2" data-action="use-osm-trail">
+        Usa come percorso
+      </button>
+    </div>`;
 }
 
 function clearRoute() {
+  routeAnalysisId += 1;
   if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
   clearChartRouteMarker();
   routeGeometry = null;
@@ -419,12 +562,18 @@ function extractBrouterElevation(coords, props) {
 
 // ── Elevation fallback (external APIs, used when Brouter unavailable) ─────
 
-async function fetchElevation() {
-  if (!routeGeometry) return;
+async function fetchElevation(options = {}) {
+  if (!routeGeometry) return false;
 
   const elevStatus = document.getElementById('elev-status');
   const reloadBtn  = document.getElementById('btn-reload-elev');
-  if (elevStatus) { elevStatus.textContent = 'Caricamento dati altimetrici…'; elevStatus.style.display = ''; }
+  const loadingText = options.loadingText || 'Caricamento dati altimetrici...';
+  const fallbackText = options.fallbackText || 'Tentativo con API alternativa...';
+  const failureText = options.failureText || 'Dati altimetrici non disponibili. Riprova tra poco.';
+  const successText = options.successText || null;
+  const isCurrentAnalysis = () => !options.analysisId || options.analysisId === routeAnalysisId;
+
+  if (elevStatus) { elevStatus.textContent = loadingText; elevStatus.style.display = ''; }
   if (reloadBtn)  reloadBtn.style.display = 'none';
 
   const coords  = routeGeometry.coordinates;
@@ -436,6 +585,7 @@ async function fetchElevation() {
 
   // If Brouter already embedded elevation, use it
   if (sampled[0]?.length >= 3 && sampled[0][2] != null) {
+    if (!isCurrentAnalysis()) return false;
     const elevs = extractBrouterElevation(coords, {});
     if (elevs) {
       if (elevStatus) elevStatus.style.display = 'none';
@@ -443,7 +593,8 @@ async function fetchElevation() {
       drawSlopeChart(routeStats.slopeSeries);
       updateStatsBar();
       document.getElementById('chart-panel')?.classList.remove('d-none');
-      return;
+      if (successText) setStatus(successText, 'success');
+      return true;
     }
   }
 
@@ -464,7 +615,7 @@ async function fetchElevation() {
   // Fallback: Open-Elevation (POST)
   if (!elevs) {
     try {
-      if (elevStatus) elevStatus.textContent = 'Tentativo con API alternativa…';
+      if (elevStatus) elevStatus.textContent = fallbackText;
       const locations = sampled.map(c => ({ latitude: c[1], longitude: c[0] }));
       const res = await fetchWithTimeout(ELEV_FALLBACK, {
         method: 'POST',
@@ -479,19 +630,23 @@ async function fetchElevation() {
   }
 
   if (!elevs) {
-    if (elevStatus) elevStatus.textContent = 'Dati altimetrici non disponibili. Riprova tra poco.';
+    if (!isCurrentAnalysis()) return false;
+    if (elevStatus) elevStatus.textContent = failureText;
     if (reloadBtn)  reloadBtn.style.display = '';
-    return;
+    return false;
   }
 
   if (elevStatus) elevStatus.style.display = 'none';
   if (reloadBtn)  reloadBtn.style.display  = 'none';
+  if (!isCurrentAnalysis()) return false;
 
   processElevation(elevs, sampled);
   drawElevChart(elevs);
   drawSlopeChart(routeStats.slopeSeries);
   updateStatsBar();
   document.getElementById('chart-panel')?.classList.remove('d-none');
+  if (successText) setStatus(successText, 'success');
+  return true;
 }
 
 function reloadElevation() {
@@ -572,6 +727,45 @@ function smoothSeries(values, windowSize = 3) {
     const slice = values.slice(start, end);
     return Math.round((slice.reduce((a, b) => a + b, 0) / slice.length) * 10) / 10;
   });
+}
+
+function isValidRouteGeometry(geometry) {
+  return geometry?.type === 'LineString' &&
+    Array.isArray(geometry.coordinates) &&
+    geometry.coordinates.length >= 2;
+}
+
+function technicalWaypointsFromGeometry(geometry) {
+  if (!isValidRouteGeometry(geometry)) return [];
+
+  const coords = geometry.coordinates;
+  const start = coords[0];
+  const end = coords[coords.length - 1];
+  if (!start || !end || start[0] == null || start[1] == null || end[0] == null || end[1] == null) {
+    return [];
+  }
+
+  return [
+    { lat: start[1], lng: start[0], name: 'Inizio sentiero OSM' },
+    { lat: end[1], lng: end[0], name: 'Fine sentiero OSM' }
+  ];
+}
+
+function buildSaveWaypoints() {
+  const manualWaypoints = waypoints.map(({ lat, lng, name }) => ({ lat, lng, name }));
+  if (manualWaypoints.length || routeSource !== 'osm_single') return manualWaypoints;
+  return technicalWaypointsFromGeometry(routeGeometry);
+}
+
+function inferRouteSource(route) {
+  const savedWaypoints = route.waypoints || [];
+  const hasOsmTechnicalWaypoints = savedWaypoints.length === 2 &&
+    savedWaypoints[0]?.name === 'Inizio sentiero OSM' &&
+    savedWaypoints[1]?.name === 'Fine sentiero OSM';
+
+  return isValidRouteGeometry(route.geometry) && hasOsmTechnicalWaypoints
+    ? 'osm_single'
+    : 'manual';
 }
 
 function slopeColor(slope, alpha = 0.85) {
@@ -778,7 +972,7 @@ function updateStatsBar() {
   if (!bar) return;
 
   el('stat-dist').textContent    = routeStats.distance.toFixed(2);
-  el('stat-dur').textContent     = fmtDuration(routeStats.duration);
+  el('stat-dur').textContent     = routeStats.duration !== null ? fmtDuration(routeStats.duration) : '—';
   el('stat-gain').textContent    = routeStats.elevGain > 0 ? routeStats.elevGain : '—';
   el('stat-loss').textContent    = routeStats.elevLoss > 0 ? routeStats.elevLoss : '—';
   el('stat-maxelev').textContent = routeStats.maxElev ?? '—';
@@ -789,6 +983,11 @@ function updateStatsBar() {
     el('stat-slope-asc').textContent  = `+${routeStats.maxSlopeAsc.toFixed(1)}`;
     el('stat-slope-desc').textContent = `${routeStats.maxSlopeDesc.toFixed(1)}`;
     el('slope-avg-span').className    = `fw-semibold text-${slopeColorClass(routeStats.avgSlope)}`;
+  } else {
+    el('stat-slope-avg').textContent  = '—';
+    el('stat-slope-asc').textContent  = '—';
+    el('stat-slope-desc').textContent = '—';
+    el('slope-avg-span').className    = 'fw-semibold text-muted';
   }
 
   bar.classList.remove('d-none');
@@ -843,7 +1042,7 @@ function updateWpList() {
 function updateBtnState() {
   const hasWps = waypoints.length > 0;
   document.getElementById('btn-undo').disabled  = !hasWps;
-  document.getElementById('btn-clear').disabled = !hasWps;
+  document.getElementById('btn-clear').disabled = !hasWps && !selectedOsmTrail && routeGeometry === null;
   document.getElementById('btn-save').disabled  = routeGeometry === null;
 }
 
@@ -924,7 +1123,7 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
     avg_slope_pct:      routeStats.avgSlope,
     max_slope_asc_pct:  routeStats.maxSlopeAsc  !== null ? Math.round(routeStats.maxSlopeAsc  * 10) / 10 : null,
     max_slope_desc_pct: routeStats.maxSlopeDesc !== null ? Math.round(routeStats.maxSlopeDesc * 10) / 10 : null,
-    waypoints:          waypoints.map(({ lat, lng, name }) => ({ lat, lng, name })),
+    waypoints:          buildSaveWaypoints(),
     geometry:           routeGeometry,
   };
 
@@ -955,7 +1154,23 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
 
 // ── Load existing route ───────────────────────────────────────────────────
 
+function loadSavedRouteStats(route) {
+  routeStats.distance = Number(route.distance_km) || 0;
+  routeStats.duration = route.duration_min != null ? Number(route.duration_min) : null;
+  routeStats.elevGain = Number(route.elevation_gain_m) || 0;
+  routeStats.elevLoss = Number(route.elevation_loss_m) || 0;
+  routeStats.maxElev = route.max_elevation_m ?? null;
+  routeStats.minElev = route.min_elevation_m ?? null;
+  routeStats.avgSlope = route.avg_slope_pct ?? null;
+  routeStats.maxSlopeAsc = route.max_slope_asc_pct ?? null;
+  routeStats.maxSlopeDesc = route.max_slope_desc_pct ?? null;
+  routeStats.elevSeries = [];
+  routeStats.slopeSeries = [];
+  routeStats.visualSlopeSeries = [];
+}
+
 async function loadExistingRoute(route) {
+  routeSource = inferRouteSource(route);
   document.getElementById('route-name').value       = route.name || '';
   document.getElementById('route-desc').value       = route.description || '';
   document.getElementById('route-diff').value       = route.difficulty || 'medium';
@@ -970,6 +1185,23 @@ async function loadExistingRoute(route) {
     const cb = document.querySelector(`.hazard-cb[value="${h}"]`);
     if (cb) cb.checked = true;
   });
+  loadSavedRouteStats(route);
+
+  if (isValidRouteGeometry(route.geometry)) {
+    routeGeometry = route.geometry;
+    drawRoute();
+    updateStatsBar();
+    updateBtnState();
+
+    const savedWaypoints = (route.waypoints || []).length
+      ? route.waypoints
+      : technicalWaypointsFromGeometry(route.geometry);
+    for (const wp of savedWaypoints) {
+      await addWaypoint(wp.lat, wp.lng, wp.name, { skipRouteCalc: true });
+    }
+    return;
+  }
+
   for (const wp of (route.waypoints || [])) {
     await addWaypoint(wp.lat, wp.lng, wp.name);
   }
@@ -980,7 +1212,7 @@ async function loadExistingRoute(route) {
 function bindControls() {
   document.getElementById('btn-undo')?.addEventListener('click', undoLast);
   document.getElementById('btn-clear')?.addEventListener('click', () => {
-    if (confirm('Rimuovere tutti i waypoint?')) clearAll();
+    if (confirm('Rimuovere waypoint, percorso e selezione OSM?')) clearAll();
   });
   const searchInput = document.getElementById('search-input');
   document.getElementById('search-btn')?.addEventListener('click', () => search(searchInput.value));
