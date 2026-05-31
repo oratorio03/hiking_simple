@@ -56,6 +56,102 @@ class User(db.Model):
 DIFFICULTY_LABELS = {'easy': 'Facile', 'medium': 'Medio', 'hard': 'Difficile', 'expert': 'Esperto'}
 DIFFICULTY_COLORS = {'easy': 'success', 'medium': 'warning', 'hard': 'orange', 'expert': 'danger'}
 
+# ── Category rules ─────────────────────────────────────────────────────────
+# Each category defines HARD constraints applied when filtering routes.
+# Slope filter is skipped when avg_slope_pct is None (data not available).
+
+CATEGORY_RULES = {
+    'famiglia': {
+        'label':    'Per famiglie',
+        'icon':     'bi-people-fill',
+        'color':    'success',
+        'desc':     'Pendenza ≤15%, nessun tratto esposto, nessuna ferrata, terreno facile',
+        'rules_detail': [
+            ('check-circle',  'success', 'Scala CAI: T o E'),
+            ('check-circle',  'success', 'Pendenza media max 15%'),
+            ('x-circle',      'danger',  'Nessun tratto esposto'),
+            ('x-circle',      'danger',  'Nessuna ferrata'),
+            ('x-circle',      'danger',  'Nessuna neve / ghiaccio'),
+            ('x-circle',      'danger',  'Nessun terreno tecnico o roccioso'),
+        ],
+        'max_avg_slope':      15,
+        'allowed_trail_types': {'T', 'E'},
+        'forbidden_hazards':  {'esposto', 'ferrata', 'valanghe', 'ghiaccio', 'tecnico'},
+        'forbidden_surfaces': {'neve', 'roccioso'},
+    },
+    'escursionista': {
+        'label':    'Escursionista',
+        'icon':     'bi-person-walking',
+        'color':    'primary',
+        'desc':     'Pendenza ≤25%, no ferrate, tratti EE ammessi',
+        'rules_detail': [
+            ('check-circle',  'success', 'Scala CAI: T, E o EE'),
+            ('check-circle',  'success', 'Pendenza media max 25%'),
+            ('check-circle',  'warning', 'Tratti esposti ammessi'),
+            ('x-circle',      'danger',  'Nessuna ferrata'),
+            ('check-circle',  'warning', 'Neve / ghiaccio: valutare'),
+        ],
+        'max_avg_slope':      25,
+        'allowed_trail_types': {'T', 'E', 'EE'},
+        'forbidden_hazards':  {'ferrata'},
+        'forbidden_surfaces': set(),
+    },
+    'sportivo': {
+        'label':    'Sportivo / EE+',
+        'icon':     'bi-activity',
+        'color':    'warning',
+        'desc':     'Pendenza ≤40%, tratti esposti e EEA ammessi, no gradi alpini alti',
+        'rules_detail': [
+            ('check-circle',  'success', 'Scala CAI: T, E, EE, EEA, F, PD'),
+            ('check-circle',  'success', 'Pendenza media max 40%'),
+            ('check-circle',  'warning', 'Tratti esposti ammessi'),
+            ('check-circle',  'warning', 'Ferrate facili/medie ammesse'),
+            ('x-circle',      'danger',  'No gradi alpini AD, D, TD, ED'),
+        ],
+        'max_avg_slope':      40,
+        'allowed_trail_types': {'T', 'E', 'EE', 'EEA', 'F', 'PD'},
+        'forbidden_hazards':  set(),
+        'forbidden_surfaces': set(),
+    },
+    'esperto': {
+        'label':    'Esperto / Alpinista',
+        'icon':     'bi-trophy-fill',
+        'color':    'danger',
+        'desc':     'Nessun limite — ferrate, alta montagna, gradi alpini inclusi',
+        'rules_detail': [
+            ('check-circle',  'success', 'Tutte le scale CAI e alpine'),
+            ('check-circle',  'success', 'Nessun limite di pendenza'),
+            ('check-circle',  'success', 'Ferrate e tratti esposti inclusi'),
+            ('check-circle',  'success', 'Neve, ghiaccio, alta quota inclusi'),
+        ],
+        'max_avg_slope':      None,
+        'allowed_trail_types': None,
+        'forbidden_hazards':  set(),
+        'forbidden_surfaces': set(),
+    },
+}
+
+
+def apply_category_filter(routes, category):
+    if not category or category not in CATEGORY_RULES:
+        return routes
+    rules = CATEGORY_RULES[category]
+    result = []
+    for route in routes:
+        slope = route.avg_slope_pct
+        if rules['max_avg_slope'] is not None and slope is not None:
+            if slope > rules['max_avg_slope']:
+                continue
+        if rules['allowed_trail_types'] is not None:
+            if route.trail_type and route.trail_type not in rules['allowed_trail_types']:
+                continue
+        if rules['forbidden_hazards'] and set(route.hazards) & rules['forbidden_hazards']:
+            continue
+        if rules['forbidden_surfaces'] and route.surface in rules['forbidden_surfaces']:
+            continue
+        result.append(route)
+    return result
+
 TRAIL_TYPE_LABELS = {
     'T':   'T — Turistico',
     'E':   'E — Escursionistico',
@@ -240,6 +336,7 @@ def inject_user():
         'now': datetime.utcnow(),
         'HAZARD_META': HAZARD_META,
         'TRAIL_TYPE_LABELS': TRAIL_TYPE_LABELS,
+        'CATEGORY_RULES': CATEGORY_RULES,
     }
 
 
@@ -318,12 +415,12 @@ def map_view():
 @login_required
 def routes_list():
     user = current_user()
-    difficulty = request.args.get('difficulty', '')
-    q = Route.query.filter_by(user_id=user.id)
-    if difficulty:
-        q = q.filter_by(difficulty=difficulty)
-    routes = q.order_by(Route.created_at.desc()).all()
-    return render_template('routes.html', routes=routes, filter_difficulty=difficulty)
+    category = request.args.get('category', '')
+    all_routes = Route.query.filter_by(user_id=user.id).order_by(Route.created_at.desc()).all()
+    routes = apply_category_filter(all_routes, category)
+    return render_template('routes.html', routes=routes,
+                           filter_category=category,
+                           total_routes=len(all_routes))
 
 
 @app.route('/routes/<int:route_id>')

@@ -10,32 +10,53 @@
     </a>
   </div>
 
-  <!-- Difficulty filter -->
-  <div class="d-flex gap-2 mb-3 overflow-auto pb-1">
+  <!-- Category filter -->
+  <div class="d-flex gap-2 mb-2 overflow-auto pb-1">
     <a href="{{ url_for('routes_list') }}"
-       class="btn btn-sm rounded-pill flex-shrink-0 {% if not filter_difficulty %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-      Tutti
+       class="btn btn-sm rounded-pill flex-shrink-0 {% if not filter_category %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-grid-fill me-1"></i>Tutti
+      <span class="badge bg-secondary bg-opacity-50 ms-1">{{ total_routes }}</span>
     </a>
-    {% for val, label in [('easy','Facile'),('medium','Medio'),('hard','Difficile'),('expert','Esperto')] %}
-    <a href="{{ url_for('routes_list', difficulty=val) }}"
-       class="btn btn-sm rounded-pill flex-shrink-0 {% if filter_difficulty == val %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-      {{ label }}
+    {% for key, cat in CATEGORY_RULES.items() %}
+    <a href="{{ url_for('routes_list', category=key) }}"
+       class="btn btn-sm rounded-pill flex-shrink-0
+              {% if filter_category == key %}btn-{{ cat.color }}{% else %}btn-outline-secondary{% endif %}"
+       title="{{ cat.desc }}">
+      <i class="bi {{ cat.icon }} me-1"></i>{{ cat.label }}
     </a>
     {% endfor %}
   </div>
 
+  <!-- Active category rules box -->
+  {% if filter_category and filter_category in CATEGORY_RULES %}
+  {% set cat = CATEGORY_RULES[filter_category] %}
+  <div class="category-rules-box border-{{ cat.color }} mb-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="bi {{ cat.icon }} text-{{ cat.color }} fs-5"></i>
+      <strong>{{ cat.label }}</strong>
+    </div>
+    <div class="rules-grid">
+      {% for icon, color, text in cat.rules_detail %}
+      <span class="rule-item">
+        <i class="bi bi-{{ icon }}-fill text-{{ color }}"></i> {{ text }}
+      </span>
+      {% endfor %}
+    </div>
+    <p class="text-muted small mb-0 mt-2">
+      Mostro solo i percorsi che soddisfano queste condizioni.
+      {% if not routes %}Nessun percorso corrisponde ai criteri.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+
   {% if routes %}
   <div class="route-list">
     {% for route in routes %}
-    <div class="route-card text-decoration-none" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'">
+    <div class="route-card" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'">
       <div class="route-card-body">
         <div class="d-flex align-items-start justify-content-between mb-1">
           <div class="route-name">{{ route.name }}</div>
-          <a href="{{ url_for('routes_list', difficulty=route.difficulty) }}"
-             class="diff-badge diff-{{ route.difficulty }} text-decoration-none"
-             onclick="event.stopPropagation()" title="Filtra per questa difficoltà">
-            {{ route.difficulty_label }}
-          </a>
+          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
         </div>
         <!-- Trail type + hazard icons -->
         <div class="d-flex flex-wrap gap-1 mb-1">
@@ -70,9 +91,18 @@
   </div>
   {% else %}
   <div class="empty-state">
-    <i class="bi bi-signpost-split text-success"></i>
-    <p>Nessun percorso{% if filter_difficulty %} con questa difficoltà{% endif %}.</p>
+    <i class="bi bi-funnel text-{{ CATEGORY_RULES[filter_category].color if filter_category else 'success' }}"></i>
+    <p>
+      {% if filter_category %}
+        Nessun percorso soddisfa i criteri di <strong>{{ CATEGORY_RULES[filter_category].label }}</strong>.
+      {% else %}
+        Nessun percorso ancora.
+      {% endif %}
+    </p>
     <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Crea il primo</a>
+    {% if filter_category %}
+    <a href="{{ url_for('routes_list') }}" class="btn btn-outline-secondary btn-sm ms-2">Mostra tutti</a>
+    {% endif %}
   </div>
   {% endif %}
 

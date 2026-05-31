@@ -259,6 +259,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .btn-chart-tab:hover { background: #f0f0f0; }
 .active-chart-tab { font-weight: 700 !important; color: #198754 !important; }
 
+/* ── Category rules box ────────────────────────────────────────────── */
+.category-rules-box {
+  border-left: 3px solid; border-radius: 8px;
+  background: #fff; padding: 10px 14px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.06);
+}
+.rules-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px;
+}
+.rule-item {
+  font-size: .75rem; color: #374151; display: flex; align-items: center; gap: 4px;
+}
+
 /* ── text-orange (Bootstrap doesn't have it) ───────────────────────── */
 .text-orange { color: #fd7e14 !important; }
 
