@@ -56,6 +56,9 @@ class User(db.Model):
 DIFFICULTY_LABELS = {'easy': 'Facile', 'medium': 'Medio', 'hard': 'Difficile', 'expert': 'Esperto'}
 DIFFICULTY_COLORS = {'easy': 'success', 'medium': 'warning', 'hard': 'orange', 'expert': 'danger'}
 
+# Surfaces safe for strollers/wheelchairs (smooth, stable, no loose material)
+ACCESSIBLE_SURFACES = {'asfalto', 'lastricato', 'ghiaia'}
+
 # ── Category rules ─────────────────────────────────────────────────────────
 # Constraints are HARD (route excluded if it violates any rule).
 # Slope/max_slope checks are skipped when the data is not available.
@@ -113,6 +116,31 @@ CATEGORY_RULES = {
                                'radici', 'gradini', 'fango', 'instabile',
                                'ghiaccio', 'valanghe'},
         'forbidden_surfaces': {'neve', 'roccioso'},
+    },
+    'principianti': {
+        'label':    'Principianti',
+        'icon':     'bi-person-cane',
+        'color':    'dark',
+        'desc':     'Per chi è poco allenato, anziani o con ipomobilità. Solo sentieri larghi, sterrati e strade; pendenza max 10%.',
+        'rules_detail': [
+            ('check-circle', 'success',  'Pendenza media max 10%'),
+            ('check-circle', 'success',  'Pendenza max ascesa 20%'),
+            ('check-circle', 'success',  'Scala CAI: solo T o E'),
+            ('check-circle', 'success',  'Fondo: asfalto, lastricato, ghiaia, terra, sterrato'),
+            ('x-circle',     'danger',   'Niente radici o terreno irregolare'),
+            ('x-circle',     'danger',   'Niente gradini o scalini'),
+            ('x-circle',     'danger',   'Niente fango o fondo instabile'),
+            ('x-circle',     'danger',   'Niente sentiero stretto, roccia o neve'),
+            ('x-circle',     'danger',   'Niente tratti esposti o ferrate'),
+        ],
+        'max_avg_slope':       10,
+        'max_slope_asc':       20,
+        'allowed_trail_types': {'T', 'E'},
+        'allowed_surfaces':    {'asfalto', 'lastricato', 'ghiaia', 'terra', 'sterrato'},
+        'forbidden_hazards':   {'esposto', 'ferrata', 'tecnico', 'roccia',
+                                'radici', 'gradini', 'fango', 'instabile',
+                                'ghiaccio', 'valanghe'},
+        'forbidden_surfaces':  set(),
     },
     'famiglia': {
         'label':    'Per famiglie',
@@ -259,9 +287,6 @@ SURFACE_LABELS = {
     'neve':      'Neve / ghiacciaio',
     'misto':     'Misto',
 }
-
-# Surfaces safe for strollers/wheelchairs (smooth, stable, no loose material)
-ACCESSIBLE_SURFACES = {'asfalto', 'lastricato', 'ghiaia'}
 
 HAZARD_META = {
     # Terrain hazards
