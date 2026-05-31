@@ -181,11 +181,21 @@
           <div class="col-7">
             <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie prevalente</label>
             <select id="route-surface" class="form-select form-select-sm">
-              <option value="sentiero">Sentiero segnalato</option>
-              <option value="sterrato">Sterrato / mulattiera</option>
-              <option value="roccioso">Roccioso</option>
-              <option value="neve">Neve / ghiacciaio</option>
-              <option value="misto">Misto</option>
+              <optgroup label="Accessibile">
+                <option value="asfalto">Asfalto / cemento</option>
+                <option value="lastricato">Lastricato / acciottolato</option>
+                <option value="ghiaia">Ghiaia / sterrato fine</option>
+              </optgroup>
+              <optgroup label="Naturale">
+                <option value="terra">Terra battuta</option>
+                <option value="sentiero" selected>Sentiero (irregolare / radici)</option>
+                <option value="sterrato">Sterrato / mulattiera</option>
+                <option value="roccioso">Roccioso / massi</option>
+              </optgroup>
+              <optgroup label="Speciale">
+                <option value="neve">Neve / ghiacciaio</option>
+                <option value="misto">Misto</option>
+              </optgroup>
             </select>
           </div>
           <div class="col-5">

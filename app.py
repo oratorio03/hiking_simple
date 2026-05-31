@@ -57,42 +57,102 @@ DIFFICULTY_LABELS = {'easy': 'Facile', 'medium': 'Medio', 'hard': 'Difficile', '
 DIFFICULTY_COLORS = {'easy': 'success', 'medium': 'warning', 'hard': 'orange', 'expert': 'danger'}
 
 # ── Category rules ─────────────────────────────────────────────────────────
-# Each category defines HARD constraints applied when filtering routes.
-# Slope filter is skipped when avg_slope_pct is None (data not available).
+# Constraints are HARD (route excluded if it violates any rule).
+# Slope/max_slope checks are skipped when the data is not available.
+# allowed_surfaces = whitelist (None = no whitelist, any surface ok).
+# forbidden_hazards / forbidden_surfaces = blacklist.
 
 CATEGORY_RULES = {
+    'passeggino': {
+        'label':    'Passeggino / Carrozzina',
+        'icon':     'bi-person-wheelchair',
+        'color':    'info',
+        'desc':     'Solo percorsi pianeggianti su superfici lisce, senza barriere — adatti a passeggini e sedie a rotelle',
+        'rules_detail': [
+            ('check-circle',    'success',   'Scala CAI: solo T (Turistico)'),
+            ('check-circle',    'success',   'Pendenza media max 8%'),
+            ('check-circle',    'success',   'Pendenza massima max 15%'),
+            ('check-circle',    'success',   'Superficie: asfalto, lastricato o ghiaia fine'),
+            ('x-circle',        'danger',    'Nessuna radice o terreno irregolare'),
+            ('x-circle',        'danger',    'Nessun gradino o scalino'),
+            ('x-circle',        'danger',    'Nessun fango o terreno molle'),
+            ('x-circle',        'danger',    'Nessun fondo instabile'),
+            ('x-circle',        'danger',    'Nessun tratto esposto o tecnico'),
+            ('x-circle',        'danger',    'Nessuna neve / ghiaccio'),
+        ],
+        'max_avg_slope':      8,
+        'max_slope_asc':      15,
+        'allowed_trail_types': {'T'},
+        'allowed_surfaces':   ACCESSIBLE_SURFACES,
+        'forbidden_hazards':  {'esposto', 'ferrata', 'tecnico', 'roccia',
+                               'radici', 'gradini', 'fango', 'instabile',
+                               'neve', 'ghiaccio', 'valanghe', 'fiume'},
+    },
+    'anziani': {
+        'label':    'Anziani / Mobilità ridotta',
+        'icon':     'bi-heart-pulse-fill',
+        'color':    'secondary',
+        'desc':     'Percorsi sicuri su terreno stabile, pendenza bassa, nessuna trappola per cadute',
+        'rules_detail': [
+            ('check-circle',    'success',   'Scala CAI: T o E'),
+            ('check-circle',    'success',   'Pendenza media max 12%'),
+            ('check-circle',    'success',   'Pendenza massima max 25%'),
+            ('x-circle',        'danger',    'Nessuna radice o terreno irregolare'),
+            ('x-circle',        'danger',    'Nessun gradino o scalino'),
+            ('x-circle',        'danger',    'Nessun fondo instabile o fangoso'),
+            ('x-circle',        'danger',    'Nessun tratto esposto'),
+            ('x-circle',        'danger',    'Nessuna ferrata'),
+            ('x-circle',        'danger',    'Nessun ghiaccio / neve'),
+            ('check-circle',    'warning',   'Superficie rocciosa: evitata'),
+        ],
+        'max_avg_slope':      12,
+        'max_slope_asc':      25,
+        'allowed_trail_types': {'T', 'E'},
+        'allowed_surfaces':   None,
+        'forbidden_hazards':  {'esposto', 'ferrata', 'tecnico',
+                               'radici', 'gradini', 'fango', 'instabile',
+                               'ghiaccio', 'valanghe'},
+        'forbidden_surfaces': {'neve', 'roccioso'},
+    },
     'famiglia': {
         'label':    'Per famiglie',
         'icon':     'bi-people-fill',
         'color':    'success',
-        'desc':     'Pendenza ≤15%, nessun tratto esposto, nessuna ferrata, terreno facile',
+        'desc':     'Pendenza ≤15%, terreno regolare, nessun tratto esposto o ferrata',
         'rules_detail': [
-            ('check-circle',  'success', 'Scala CAI: T o E'),
-            ('check-circle',  'success', 'Pendenza media max 15%'),
-            ('x-circle',      'danger',  'Nessun tratto esposto'),
-            ('x-circle',      'danger',  'Nessuna ferrata'),
-            ('x-circle',      'danger',  'Nessuna neve / ghiaccio'),
-            ('x-circle',      'danger',  'Nessun terreno tecnico o roccioso'),
+            ('check-circle',    'success',   'Scala CAI: T o E'),
+            ('check-circle',    'success',   'Pendenza media max 15%'),
+            ('x-circle',        'danger',    'Nessun tratto esposto'),
+            ('x-circle',        'danger',    'Nessuna ferrata'),
+            ('x-circle',        'danger',    'Nessuna neve / ghiaccio / valanghe'),
+            ('x-circle',        'danger',    'Nessun terreno tecnico o roccioso'),
+            ('x-circle',        'danger',    'Nessun fondo instabile'),
         ],
         'max_avg_slope':      15,
+        'max_slope_asc':      None,
         'allowed_trail_types': {'T', 'E'},
-        'forbidden_hazards':  {'esposto', 'ferrata', 'valanghe', 'ghiaccio', 'tecnico'},
+        'allowed_surfaces':   None,
+        'forbidden_hazards':  {'esposto', 'ferrata', 'valanghe', 'ghiaccio',
+                               'tecnico', 'instabile'},
         'forbidden_surfaces': {'neve', 'roccioso'},
     },
     'escursionista': {
         'label':    'Escursionista',
         'icon':     'bi-person-walking',
         'color':    'primary',
-        'desc':     'Pendenza ≤25%, no ferrate, tratti EE ammessi',
+        'desc':     'Pendenza ≤25%, no ferrate, tratti EE e terreno vario ammessi',
         'rules_detail': [
-            ('check-circle',  'success', 'Scala CAI: T, E o EE'),
-            ('check-circle',  'success', 'Pendenza media max 25%'),
-            ('check-circle',  'warning', 'Tratti esposti ammessi'),
-            ('x-circle',      'danger',  'Nessuna ferrata'),
-            ('check-circle',  'warning', 'Neve / ghiaccio: valutare'),
+            ('check-circle',    'success',   'Scala CAI: T, E o EE'),
+            ('check-circle',    'success',   'Pendenza media max 25%'),
+            ('check-circle',    'warning',   'Tratti esposti ammessi'),
+            ('check-circle',    'warning',   'Radici e terreno irregolare: ammessi'),
+            ('x-circle',        'danger',    'Nessuna ferrata'),
+            ('check-circle',    'warning',   'Neve / ghiaccio: valutare condizioni'),
         ],
         'max_avg_slope':      25,
+        'max_slope_asc':      None,
         'allowed_trail_types': {'T', 'E', 'EE'},
+        'allowed_surfaces':   None,
         'forbidden_hazards':  {'ferrata'},
         'forbidden_surfaces': set(),
     },
@@ -102,14 +162,16 @@ CATEGORY_RULES = {
         'color':    'warning',
         'desc':     'Pendenza ≤40%, tratti esposti e EEA ammessi, no gradi alpini alti',
         'rules_detail': [
-            ('check-circle',  'success', 'Scala CAI: T, E, EE, EEA, F, PD'),
-            ('check-circle',  'success', 'Pendenza media max 40%'),
-            ('check-circle',  'warning', 'Tratti esposti ammessi'),
-            ('check-circle',  'warning', 'Ferrate facili/medie ammesse'),
-            ('x-circle',      'danger',  'No gradi alpini AD, D, TD, ED'),
+            ('check-circle',    'success',   'Scala CAI: T, E, EE, EEA, F, PD'),
+            ('check-circle',    'success',   'Pendenza media max 40%'),
+            ('check-circle',    'warning',   'Tratti esposti ammessi'),
+            ('check-circle',    'warning',   'Ferrate facili/medie ammesse'),
+            ('x-circle',        'danger',    'No gradi alpini AD, D, TD, ED'),
         ],
         'max_avg_slope':      40,
+        'max_slope_asc':      None,
         'allowed_trail_types': {'T', 'E', 'EE', 'EEA', 'F', 'PD'},
+        'allowed_surfaces':   None,
         'forbidden_hazards':  set(),
         'forbidden_surfaces': set(),
     },
@@ -119,13 +181,16 @@ CATEGORY_RULES = {
         'color':    'danger',
         'desc':     'Nessun limite — ferrate, alta montagna, gradi alpini inclusi',
         'rules_detail': [
-            ('check-circle',  'success', 'Tutte le scale CAI e alpine'),
-            ('check-circle',  'success', 'Nessun limite di pendenza'),
-            ('check-circle',  'success', 'Ferrate e tratti esposti inclusi'),
-            ('check-circle',  'success', 'Neve, ghiaccio, alta quota inclusi'),
+            ('check-circle',    'success',   'Tutte le scale CAI e alpine'),
+            ('check-circle',    'success',   'Nessun limite di pendenza'),
+            ('check-circle',    'success',   'Ferrate e tratti esposti inclusi'),
+            ('check-circle',    'success',   'Neve, ghiaccio, alta quota inclusi'),
+            ('check-circle',    'success',   'Qualsiasi tipo di terreno'),
         ],
         'max_avg_slope':      None,
+        'max_slope_asc':      None,
         'allowed_trail_types': None,
+        'allowed_surfaces':   None,
         'forbidden_hazards':  set(),
         'forbidden_surfaces': set(),
     },
@@ -138,16 +203,27 @@ def apply_category_filter(routes, category):
     rules = CATEGORY_RULES[category]
     result = []
     for route in routes:
-        slope = route.avg_slope_pct
-        if rules['max_avg_slope'] is not None and slope is not None:
-            if slope > rules['max_avg_slope']:
+        # Average slope (skip check if data missing)
+        if rules['max_avg_slope'] is not None and route.avg_slope_pct is not None:
+            if route.avg_slope_pct > rules['max_avg_slope']:
                 continue
+        # Max ascent slope (skip check if data missing)
+        if rules.get('max_slope_asc') is not None and route.max_slope_asc_pct is not None:
+            if route.max_slope_asc_pct > rules['max_slope_asc']:
+                continue
+        # Trail type whitelist
         if rules['allowed_trail_types'] is not None:
             if route.trail_type and route.trail_type not in rules['allowed_trail_types']:
                 continue
-        if rules['forbidden_hazards'] and set(route.hazards) & rules['forbidden_hazards']:
+        # Forbidden hazards
+        if rules.get('forbidden_hazards') and set(route.hazards) & rules['forbidden_hazards']:
             continue
-        if rules['forbidden_surfaces'] and route.surface in rules['forbidden_surfaces']:
+        # Surface whitelist (if set, surface must be in the allowed set — unknown/None surface passes)
+        if rules.get('allowed_surfaces') is not None and route.surface:
+            if route.surface not in rules['allowed_surfaces']:
+                continue
+        # Surface blacklist
+        if rules.get('forbidden_surfaces') and route.surface in rules['forbidden_surfaces']:
             continue
         result.append(route)
     return result
@@ -173,22 +249,36 @@ ROUTE_TYPE_LABELS = {
 }
 
 SURFACE_LABELS = {
-    'sentiero':  'Sentiero segnalato',
+    'asfalto':   'Asfalto / cemento',
+    'lastricato':'Lastricato / acciottolato',
+    'ghiaia':    'Ghiaia / sterrato fine',
+    'terra':     'Terra battuta',
+    'sentiero':  'Sentiero (irregolare / radici)',
     'sterrato':  'Sterrato / mulattiera',
-    'roccioso':  'Roccioso',
+    'roccioso':  'Roccioso / massi',
     'neve':      'Neve / ghiacciaio',
     'misto':     'Misto',
 }
 
+# Surfaces safe for strollers/wheelchairs (smooth, stable, no loose material)
+ACCESSIBLE_SURFACES = {'asfalto', 'lastricato', 'ghiaia'}
+
 HAZARD_META = {
-    'esposto':  ('bi-exclamation-triangle-fill', 'warning',   'Tratti esposti'),
-    'ferrata':  ('bi-ladder',                    'danger',    'Via ferrata'),
-    'neve':     ('bi-snow2',                     'primary',   'Neve'),
-    'ghiaccio': ('bi-thermometer-snow',          'info',      'Ghiaccio'),
-    'valanghe': ('bi-cloud-snow-fill',           'danger',    'Rischio valanghe'),
-    'fiume':    ('bi-water',                     'primary',   'Guado / fiume'),
-    'tecnico':  ('bi-tools',                     'secondary', 'Terreno tecnico'),
-    'roccia':   ('bi-triangle-fill',             'secondary', 'Roccia'),
+    # Terrain hazards
+    'esposto':   ('bi-exclamation-triangle-fill', 'warning',   'Tratti esposti'),
+    'ferrata':   ('bi-ladder',                    'danger',    'Via ferrata'),
+    'tecnico':   ('bi-tools',                     'secondary', 'Terreno tecnico'),
+    'roccia':    ('bi-triangle-fill',             'secondary', 'Roccia'),
+    # Terrain surface hazards
+    'radici':    ('bi-tree-fill',                 'warning',   'Radici / terreno irregolare'),
+    'gradini':   ('bi-arrow-up-square-fill',      'secondary', 'Gradini / scalini'),
+    'fango':     ('bi-droplet-half',              'secondary', 'Fango / terreno molle'),
+    'instabile': ('bi-exclamation-diamond-fill',  'danger',    'Fondo instabile'),
+    # Weather/alpine hazards
+    'neve':      ('bi-snow2',                     'primary',   'Neve'),
+    'ghiaccio':  ('bi-thermometer-snow',          'info',      'Ghiaccio'),
+    'valanghe':  ('bi-cloud-snow-fill',           'danger',    'Rischio valanghe'),
+    'fiume':     ('bi-water',                     'primary',   'Guado / fiume'),
 }
 
 
