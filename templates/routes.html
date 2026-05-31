@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}I miei percorsi — HikePath{% endblock %}
+{% block content %}
+<div class="page-content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="fw-bold mb-0">I miei percorsi</h5>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">
+      <i class="bi bi-plus-lg me-1"></i>Nuovo
+    </a>
+  </div>
+
+  <!-- Category filter -->
+  <div class="d-flex gap-2 mb-2 overflow-auto pb-1">
+    <a href="{{ url_for('routes_list') }}"
+       class="btn btn-sm rounded-pill flex-shrink-0 {% if not filter_category %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-grid-fill me-1"></i>Tutti
+      <span class="badge bg-secondary bg-opacity-50 ms-1">{{ total_routes }}</span>
+    </a>
+    {% for key, cat in CATEGORY_RULES.items() %}
+    <a href="{{ url_for('routes_list', category=key) }}"
+       class="btn btn-sm rounded-pill flex-shrink-0
+              {% if filter_category == key %}btn-{{ cat.color }}{% else %}btn-outline-secondary{% endif %}"
+       title="{{ cat.desc }}">
+      <i class="bi {{ cat.icon }} me-1"></i>{{ cat.label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Active category rules box -->
+  {% if filter_category and filter_category in CATEGORY_RULES %}
+  {% set cat = CATEGORY_RULES[filter_category] %}
+  <div class="category-rules-box border-{{ cat.color }} mb-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <i class="bi {{ cat.icon }} text-{{ cat.color }} fs-5"></i>
+      <strong>{{ cat.label }}</strong>
+    </div>
+    <div class="rules-grid">
+      {% for icon, color, text in cat.rules_detail %}
+      <span class="rule-item">
+        <i class="bi bi-{{ icon }}-fill text-{{ color }}"></i> {{ text }}
+      </span>
+      {% endfor %}
+    </div>
+    <p class="text-muted small mb-0 mt-2">
+      Mostro solo i percorsi che soddisfano queste condizioni.
+      {% if not routes %}Nessun percorso corrisponde ai criteri.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  {% if routes %}
+  <div class="route-list">
+    {% for route in routes %}
+    <div class="route-card" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'">
+      <div class="route-card-body">
+        <div class="d-flex align-items-start justify-content-between mb-1">
+          <div class="route-name">{{ route.name }}</div>
+          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
+        </div>
+        <!-- Trail type + hazard icons -->
+        <div class="d-flex flex-wrap gap-1 mb-1">
+          <span class="badge badge-trail-sm">{{ route.trail_type or 'E' }}</span>
+          <span class="badge bg-light text-muted border" style="font-size:.65rem">{{ route.route_type_label }}</span>
+          {% for key, (icon, color, label) in route.hazard_meta %}
+          <span class="text-{{ color }}" title="{{ label }}" style="font-size:.8rem">
+            <i class="bi {{ icon }}"></i>
+          </span>
+          {% endfor %}
+        </div>
+        {% if route.description %}
+        <div class="route-desc mb-1">{{ route.description[:70] }}{% if route.description|length > 70 %}…{% endif %}</div>
+        {% endif %}
+        <div class="route-meta">
+          <span><i class="bi bi-arrows-expand-vertical"></i> {{ "%.1f"|format(route.distance_km) }} km</span>
+          <span><i class="bi bi-clock"></i> {{ route.duration_str() }}</span>
+          {% if route.elevation_gain_m %}
+          <span><i class="bi bi-graph-up"></i> +{{ route.elevation_gain_m }}m</span>
+          {% endif %}
+          {% if route.avg_slope_pct is not none %}
+          <span class="text-{{ route.slope_color(route.avg_slope_pct) }}">
+            <i class="bi bi-slash-lg"></i> {{ "%.0f"|format(route.avg_slope_pct) }}%
+          </span>
+          {% endif %}
+          <span><i class="bi bi-check-circle"></i> {{ route.logs|length }}</span>
+          <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-funnel text-{{ CATEGORY_RULES[filter_category].color if filter_category else 'success' }}"></i>
+    <p>
+      {% if filter_category %}
+        Nessun percorso soddisfa i criteri di <strong>{{ CATEGORY_RULES[filter_category].label }}</strong>.
+      {% else %}
+        Nessun percorso ancora.
+      {% endif %}
+    </p>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Crea il primo</a>
+    {% if filter_category %}
+    <a href="{{ url_for('routes_list') }}" class="btn btn-outline-secondary btn-sm ms-2">Mostra tutti</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

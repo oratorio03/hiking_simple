@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Home — HikePath{% endblock %}
+{% block content %}
+<div class="page-content">
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <i class="bi bi-signpost-split-fill text-success"></i>
+      <div class="stat-val">{{ total_routes }}</div>
+      <div class="stat-label">Percorsi</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-arrows-expand-vertical text-warning"></i>
+      <div class="stat-val">{{ current_user.total_km }}</div>
+      <div class="stat-label">km pianificati</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-graph-up-arrow text-danger"></i>
+      <div class="stat-val">{{ current_user.total_elevation }}</div>
+      <div class="stat-label">m dislivello</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-check-circle-fill text-primary"></i>
+      <div class="stat-val">{{ current_user.hikes_completed }}</div>
+      <div class="stat-label">Escursioni</div>
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <a href="{{ url_for('map_view') }}" class="btn btn-success btn-lg w-100 mb-4">
+    <i class="bi bi-plus-circle me-2"></i>Pianifica nuovo percorso
+  </a>
+
+  <!-- Recent routes -->
+  {% if recent %}
+  <h6 class="section-title">Percorsi recenti</h6>
+  <div class="route-list">
+    {% for route in recent %}
+    <a href="{{ url_for('route_detail', route_id=route.id) }}" class="route-card text-decoration-none">
+      <div class="route-card-body">
+        <div class="d-flex align-items-start justify-content-between">
+          <div>
+            <div class="route-name">{{ route.name }}</div>
+            {% if route.description %}
+            <div class="route-desc">{{ route.description[:60] }}{% if route.description|length > 60 %}…{% endif %}</div>
+            {% endif %}
+          </div>
+          <span class="diff-badge diff-{{ route.difficulty }}">{{ route.difficulty_label }}</span>
+        </div>
+        <div class="route-meta">
+          <span><i class="bi bi-arrows-expand-vertical"></i> {{ "%.1f"|format(route.distance_km) }} km</span>
+          <span><i class="bi bi-clock"></i> {{ route.duration_str() }}</span>
+          {% if route.elevation_gain_m %}
+          <span><i class="bi bi-graph-up"></i> {{ route.elevation_gain_m }}m</span>
+          {% endif %}
+          <span class="ms-auto text-muted">{{ route.time_ago() }}</span>
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('routes_list') }}" class="btn btn-outline-secondary w-100 mt-2">
+    Tutti i percorsi <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-map text-success"></i>
+    <p>Nessun percorso ancora.<br>Inizia aprendo la mappa!</p>
+    <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Apri la mappa</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

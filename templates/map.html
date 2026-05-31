@@ -1,0 +1,307 @@
+{% extends 'base.html' %}
+{% block title %}Mappa — HikePath{% endblock %}
+
+{% block head %}
+<style>
+  .main { display:flex; flex-direction:column; height:calc(100vh - 56px - 60px); }
+  #map { flex: 0 0 52vh; min-height: 200px; position:relative; }
+  #panel { flex: 1; overflow-y: auto; background: #fff; }
+  @media (min-width: 768px) {
+    .main { flex-direction: row; height: calc(100vh - 56px - 60px); }
+    #map { flex: 1; height: 100%; }
+    #panel { flex: 0 0 360px; height: 100%; border-left: 1px solid #dee2e6; }
+  }
+  .map-spinner {
+    position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.65); color:#fff; padding:5px 14px;
+    border-radius:999px; font-size:.78rem; z-index:800; display:none;
+    align-items:center; gap:6px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="main">
+
+  <!-- MAP -->
+  <div id="map">
+    <div class="map-spinner" id="map-spinner">
+      <span class="spinner-border spinner-border-sm"></span>
+      <span id="spinner-text">Calcolo percorso…</span>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div id="panel" class="d-flex flex-column">
+
+    <!-- Search -->
+    <div class="p-3 border-bottom position-relative">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+        <input type="text" id="search-input" class="form-control" placeholder="Cerca vetta, rifugio, lago…">
+        <button class="btn btn-outline-secondary" id="search-btn">Vai</button>
+      </div>
+      <div id="search-results" class="list-group mt-1 shadow"
+           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999;max-height:200px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Trail profile + undo/clear -->
+    <div class="border-bottom">
+      <div class="d-flex gap-1 px-3 py-2 bg-light align-items-center flex-wrap">
+        <span class="text-muted small me-1">Profilo:</span>
+        <button id="btn-prof-hiking" class="btn btn-sm btn-success" onclick="setRouteProfile('hiking')"
+                title="Sentieri segnalati CAI/OSM — preferisce highway=path/track con sac_scale">
+          <i class="bi bi-signpost-split me-1"></i>Sentiero
+        </button>
+        <button id="btn-prof-trekking" class="btn btn-sm btn-outline-secondary" onclick="setRouteProfile('trekking')"
+                title="Trekking — include sentieri non segnalati e piste forestali">
+          <i class="bi bi-tree me-1"></i>Trekking
+        </button>
+        <button id="btn-prof-safety" class="btn btn-sm btn-outline-secondary" onclick="setRouteProfile('safety')"
+                title="Percorso sicuro — privilegia strade e sentieri ben mantenuti, evita esposizioni">
+          <i class="bi bi-shield-check me-1"></i>Sicuro
+        </button>
+        <button id="btn-undo" class="btn btn-sm btn-outline-secondary ms-auto" disabled title="Rimuovi ultimo waypoint">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+        <button id="btn-clear" class="btn btn-sm btn-outline-danger" disabled title="Rimuovi tutti i waypoint">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+      <div class="px-3 pb-2 bg-light">
+        <button id="btn-osm-trails" class="btn btn-sm btn-outline-success w-100" onclick="toggleOsmTrails()">
+          <i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili
+        </button>
+      </div>
+
+      <!-- Status message -->
+      <div id="status-bar" class="px-3 pb-2 d-none">
+        <span id="status-msg" class="small"></span>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div id="stats-bar" class="px-3 py-2 border-bottom bg-success bg-opacity-10 d-none">
+      <div class="d-flex flex-wrap gap-3 text-success fw-semibold small">
+        <span><i class="bi bi-arrows-expand-vertical me-1"></i><span id="stat-dist">0</span> km</span>
+        <span><i class="bi bi-clock me-1"></i><span id="stat-dur">—</span></span>
+        <span><i class="bi bi-graph-up me-1"></i>+<span id="stat-gain">—</span>m</span>
+        <span class="text-danger"><i class="bi bi-graph-down me-1"></i>-<span id="stat-loss">—</span>m</span>
+      </div>
+      <div class="d-flex flex-wrap gap-3 mt-1 small">
+        <span class="text-muted"><i class="bi bi-arrow-up me-1"></i>Max <span id="stat-maxelev">—</span> m s.l.m.</span>
+        <span class="text-muted"><i class="bi bi-arrow-down me-1"></i>Min <span id="stat-minelev">—</span> m s.l.m.</span>
+        <span id="slope-avg-span" class="fw-semibold"><span id="slope-avg-label">∅</span> <span id="stat-slope-avg">—</span><span id="stat-slope-avg-unit">%</span></span>
+        <span class="text-danger">▲ <span id="stat-slope-asc">—</span><span id="stat-slope-asc-unit">%</span></span>
+        <span class="text-primary">▼ <span id="stat-slope-desc">—</span><span id="stat-slope-desc-unit">%</span></span>
+      </div>
+    </div>
+
+    <!-- Waypoints list -->
+    <div class="px-3 py-2 border-bottom flex-shrink-0">
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <span class="small fw-semibold text-muted">TAPPE (<span id="wp-count">0</span>)</span>
+      </div>
+      <div id="wp-list" class="wp-list"></div>
+      <div id="wp-empty" class="text-muted small py-1">
+        <i class="bi bi-cursor-fill me-1"></i>Clicca sulla mappa per aggiungere tappe
+      </div>
+    </div>
+
+    <!-- Chart panel -->
+    <div id="chart-panel" class="border-bottom d-none">
+      <div class="d-flex gap-2 px-3 pt-2 mb-1 align-items-center">
+        <button class="btn-chart-tab active-chart-tab" id="tab-elev" onclick="showTab('elev')">Altimetria</button>
+        <button class="btn-chart-tab text-muted" id="tab-slope" onclick="showTab('slope')">Pendenza</button>
+        <button class="btn btn-link btn-sm p-0 ms-auto text-muted small" id="btn-reload-elev"
+                onclick="reloadElevation()" title="Ricarica dati altimetrici" style="display:none">
+          <i class="bi bi-arrow-clockwise"></i> Ricarica
+        </button>
+      </div>
+      <div id="elev-status" class="px-3 py-1 small text-muted" style="display:none"></div>
+      <div class="px-3 pb-2">
+        <div id="chart-elev"><canvas id="elev-chart" height="80"></canvas></div>
+        <div id="chart-slope" style="display:none"><canvas id="slope-chart" height="80"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Save form -->
+    <div class="p-3 border-top">
+      <form id="save-form">
+        <div class="mb-2">
+          <div class="fw-semibold small">Dettagli per il salvataggio</div>
+          <div class="text-muted small">Questi dati descrivono il percorso salvato: non filtrano la mappa.</div>
+        </div>
+
+        <div class="mb-2">
+          <input type="text" id="route-name" class="form-control form-control-sm fw-semibold"
+                 placeholder="Nome percorso *" required maxlength="200">
+        </div>
+        <div class="mb-2">
+          <textarea id="route-desc" class="form-control form-control-sm" rows="2"
+                    placeholder="Descrizione (opzionale)" maxlength="500"></textarea>
+        </div>
+
+        <!-- Trail type + route shape -->
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <div class="d-flex align-items-center gap-1 mb-1">
+              <label class="form-label form-label-sm mb-0 fw-semibold small">Scala CAI del percorso</label>
+              <button type="button" class="btn btn-link btn-sm p-0 text-muted" style="font-size:.7rem"
+                      data-bs-toggle="modal" data-bs-target="#caiModal">
+                <i class="bi bi-info-circle"></i>
+              </button>
+            </div>
+            <select id="route-trail-type" class="form-select form-select-sm">
+              <option value="T">T — Turistico</option>
+              <option value="E" selected>E — Escursionistico</option>
+              <option value="EE">EE — Escursionisti Esperti</option>
+              <option value="EEA">EEA — Ferrata / Attrezzato</option>
+              <option value="F">F — Facile (alpinismo)</option>
+              <option value="PD">PD — Poco Difficile</option>
+              <option value="AD">AD — Abbastanza Difficile</option>
+              <option value="D">D — Difficile</option>
+              <option value="TD">TD — Molto Difficile</option>
+              <option value="ED">ED — Estremo</option>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Tipo percorso</label>
+            <select id="route-type-tag" class="form-select form-select-sm">
+              <option value="punto_punto">Punto a punto</option>
+              <option value="anello">Anello</option>
+              <option value="andata_ritorno">Andata e ritorno</option>
+              <option value="multiday">Multi-giorno</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Surface + difficulty -->
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Superficie prevalente</label>
+            <select id="route-surface" class="form-select form-select-sm">
+              <optgroup label="Accessibile">
+                <option value="asfalto">Asfalto / cemento</option>
+                <option value="lastricato">Lastricato / acciottolato</option>
+                <option value="ghiaia">Ghiaia / sterrato fine</option>
+              </optgroup>
+              <optgroup label="Naturale">
+                <option value="terra">Terra battuta</option>
+                <option value="sentiero" selected>Sentiero (irregolare / radici)</option>
+                <option value="sterrato">Sterrato / mulattiera</option>
+                <option value="roccioso">Roccioso / massi</option>
+              </optgroup>
+              <optgroup label="Speciale">
+                <option value="neve">Neve / ghiacciaio</option>
+                <option value="misto">Misto</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label form-label-sm mb-1 fw-semibold small">Livello consigliato</label>
+            <select id="route-diff" class="form-select form-select-sm">
+              <option value="easy">Facile</option>
+              <option value="medium" selected>Medio</option>
+              <option value="hard">Difficile</option>
+              <option value="expert">Esperto</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ferrata grade (shown only for EEA) -->
+        <div id="ferrata-row" class="mb-2 d-none">
+          <label class="form-label form-label-sm mb-1 fw-semibold small">Grado ferrata</label>
+          <select id="route-ferrata-grade" class="form-select form-select-sm">
+            <option value="">— seleziona grado —</option>
+            <option value="F">F — Facile</option>
+            <option value="PD">PD — Poco Difficile</option>
+            <option value="AD">AD — Abbastanza Difficile</option>
+            <option value="D">D — Difficile</option>
+            <option value="TD">TD — Molto Difficile</option>
+            <option value="ED">ED — Estremamente Difficile</option>
+          </select>
+        </div>
+
+        <!-- Hazards -->
+        <div class="mb-3">
+          <label class="form-label form-label-sm mb-1 fw-semibold small">
+            Attenzioni sul percorso
+            <span class="text-muted fw-normal">(appariranno come badge sulla scheda percorso)</span>
+          </label>
+          <div class="hazard-check-grid">
+            {% for key, (icon, color, label) in HAZARD_META.items() %}
+            <label class="hazard-check-item">
+              <input type="checkbox" class="hazard-cb" value="{{ key }}">
+              <span><i class="bi {{ icon }} text-{{ color }}"></i> {{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button type="submit" id="btn-save" class="btn btn-success w-100 fw-semibold" disabled>
+          <i class="bi bi-floppy me-1"></i>Salva percorso
+        </button>
+        {% if route %}
+        <p class="text-muted text-center small mt-1 mb-0">Modifica: <strong>{{ route.name }}</strong></p>
+        {% endif %}
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<!-- CAI Scale info modal -->
+<div class="modal fade" id="caiModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title fw-bold">Scala difficoltà CAI</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body small">
+        <table class="table table-sm">
+          <thead><tr><th>Sigla</th><th>Nome</th><th>Descrizione</th></tr></thead>
+          <tbody>
+            <tr><td><strong>T</strong></td><td>Turistico</td><td>Su strade o mulattiere, senza difficoltà di orientamento</td></tr>
+            <tr><td><strong>E</strong></td><td>Escursionistico</td><td>Su sentieri con segnaletica, nessun pericolo</td></tr>
+            <tr><td><strong>EE</strong></td><td>Escursionisti Esperti</td><td>Sentieri con tratti esposti, su roccia, richiede esperienza</td></tr>
+            <tr><td><strong>EEA</strong></td><td>Ferrata / Attrezzato</td><td>Via ferrate o percorsi attrezzati, necessario imbragatura</td></tr>
+            <tr class="table-secondary"><td colspan="3" class="fw-semibold">Scale alpinistiche</td></tr>
+            <tr><td><strong>F</strong></td><td>Facile</td><td>Alpinismo semplice, roccia solida</td></tr>
+            <tr><td><strong>PD</strong></td><td>Poco Difficile</td><td>Tratti di II grado, qualche passo su roccia</td></tr>
+            <tr><td><strong>AD</strong></td><td>Abbastanza Difficile</td><td>III grado, passaggi delicati</td></tr>
+            <tr><td><strong>D</strong></td><td>Difficile</td><td>IV grado, richiede tecnica</td></tr>
+            <tr><td><strong>TD</strong></td><td>Molto Difficile</td><td>V grado, alpinisti esperti</td></tr>
+            <tr><td><strong>ED</strong></td><td>Estremo</td><td>VI grado e oltre, elite</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if route %}
+<script>window.PRELOAD_ROUTE = {{ route.to_dict()|tojson }};</script>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+<script>
+// Show/hide ferrata grade
+document.getElementById('route-trail-type').addEventListener('change', function() {
+  document.getElementById('ferrata-row').classList.toggle('d-none', this.value !== 'EEA');
+});
+
+// Chart tab toggle
+function showTab(tab) {
+  document.getElementById('chart-elev').style.display = tab === 'elev' ? '' : 'none';
+  document.getElementById('chart-slope').style.display = tab === 'slope' ? '' : 'none';
+  document.getElementById('tab-elev').classList.toggle('active-chart-tab', tab === 'elev');
+  document.getElementById('tab-elev').classList.toggle('text-muted', tab !== 'elev');
+  document.getElementById('tab-slope').classList.toggle('active-chart-tab', tab === 'slope');
+  document.getElementById('tab-slope').classList.toggle('text-muted', tab === 'elev');
+}
+</script>
+{% endblock %}

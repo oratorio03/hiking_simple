@@ -1,0 +1,279 @@
+/* ── Reset & base ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; }
+
+/* ── Top bar ───────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 1100;
+  height: 56px; display: flex; align-items: center;
+}
+
+/* ── Bottom navigation ─────────────────────────────────────────────── */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 60px; background: #fff; border-top: 1px solid #dee2e6;
+  display: flex; z-index: 1100; box-shadow: 0 -2px 8px rgba(0,0,0,.06);
+}
+.bnav-item {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-decoration: none; color: #6c757d;
+  font-size: .62rem; gap: 2px; transition: color .15s;
+}
+.bnav-item i { font-size: 1.25rem; }
+.bnav-item.active { color: #198754; }
+
+/* ── Page layout ───────────────────────────────────────────────────── */
+.with-nav { padding-bottom: 60px; }
+.page-content { max-width: 600px; margin: 0 auto; padding: 16px; }
+
+/* ── Flash ─────────────────────────────────────────────────────────── */
+.flash-msg { margin: 12px; border-radius: 10px; border: none; }
+
+/* ── Auth pages ────────────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 24px 16px; background: #1a2e1a;
+}
+.auth-logo { text-align: center; color: #fff; margin-bottom: 24px; }
+.auth-logo i { font-size: 3rem; color: #198754; }
+.auth-logo h1 { font-size: 1.8rem; font-weight: 800; margin: 8px 0 4px; }
+.auth-logo p { color: #9ca3af; font-size: .9rem; margin: 0; }
+.auth-card {
+  background: #fff; border-radius: 16px; padding: 28px;
+  width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,.3);
+}
+.auth-card h5 { font-weight: 700; margin-bottom: 20px; }
+
+/* ── Stats grid ────────────────────────────────────────────────────── */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 8px; margin-bottom: 20px;
+}
+.stat-card {
+  background: #fff; border-radius: 12px; padding: 10px 6px;
+  text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+}
+.stat-card i { font-size: 1.2rem; display: block; margin-bottom: 4px; }
+.stat-val { font-size: 1rem; font-weight: 700; line-height: 1.1; }
+.stat-label { font-size: .62rem; color: #6c757d; margin-top: 2px; }
+
+/* ── Section titles ────────────────────────────────────────────────── */
+.section-title {
+  font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  color: #6c757d; letter-spacing: .05em; margin-bottom: 10px;
+}
+
+/* ── Route cards ───────────────────────────────────────────────────── */
+.route-list { display: flex; flex-direction: column; gap: 8px; }
+.route-card {
+  display: block; background: #fff; border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.07); overflow: hidden;
+  color: inherit; transition: transform .1s, box-shadow .1s;
+  cursor: pointer;
+}
+.route-card:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(0,0,0,.12); }
+.route-card-body { padding: 12px 14px; }
+.route-name { font-weight: 600; font-size: .95rem; color: #1a1a1a; }
+.route-desc { font-size: .78rem; color: #6c757d; margin-top: 2px; }
+.route-meta {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;
+  font-size: .75rem; color: #6c757d; align-items: center;
+}
+.route-meta i { margin-right: 2px; }
+
+/* ── Difficulty badges ─────────────────────────────────────────────── */
+.diff-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: .7rem; font-weight: 600; white-space: nowrap; flex-shrink: 0;
+}
+.diff-easy    { background: #d1fae5; color: #065f46; }
+.diff-medium  { background: #fef3c7; color: #92400e; }
+.diff-hard    { background: #ffedd5; color: #9a3412; }
+.diff-expert  { background: #fee2e2; color: #991b1b; }
+
+/* ── Empty states ──────────────────────────────────────────────────── */
+.empty-state {
+  text-align: center; padding: 48px 16px; color: #6c757d;
+}
+.empty-state i { font-size: 3rem; display: block; margin-bottom: 12px; opacity: .5; }
+.empty-state p { margin-bottom: 16px; line-height: 1.6; }
+
+/* ── Waypoint steps (detail page) ──────────────────────────────────── */
+.waypoint-steps { display: flex; flex-direction: column; gap: 0; }
+.wp-step {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0; border-left: 2px solid #dee2e6; margin-left: 12px;
+  padding-left: 16px; position: relative;
+}
+.wp-step:last-child { border-left-color: transparent; }
+.wp-step-dot {
+  position: absolute; left: -12px;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .7rem; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.wp-dot-start { background: #198754; }
+.wp-dot-mid   { background: #0d6efd; }
+.wp-dot-end   { background: #dc3545; }
+.wp-step-name { font-size: .85rem; color: #374151; }
+
+/* ── Map panel waypoint list ───────────────────────────────────────── */
+.wp-list { display: flex; flex-direction: column; gap: 4px; }
+.wp-list-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 8px; background: #f8f9fa;
+}
+.wp-dot {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .68rem; font-weight: 700; color: #fff;
+}
+.wp-dot-start { background: #198754; }
+.wp-dot-mid   { background: #0d6efd; }
+.wp-dot-end   { background: #dc3545; }
+.wp-list-name { font-size: .78rem; color: #374151; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wp-del-btn {
+  background: none; border: none; color: #9ca3af; padding: 0 2px;
+  cursor: pointer; line-height: 1; font-size: .9rem; flex-shrink: 0;
+}
+.wp-del-btn:hover { color: #dc3545; }
+
+/* ── Leaflet marker override ───────────────────────────────────────── */
+.wp-marker {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 700; color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3); border: 2px solid rgba(255,255,255,.8);
+}
+
+/* ── Profile header ────────────────────────────────────────────────── */
+.profile-header {
+  background: linear-gradient(160deg, #1a2e1a, #2d5a27);
+  color: #fff; text-align: center; padding: 36px 16px 24px;
+}
+.profile-avatar {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: rgba(255,255,255,.2); border: 3px solid rgba(255,255,255,.5);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 2rem; font-weight: 800; color: #fff;
+}
+
+/* ── Achievements grid ─────────────────────────────────────────────── */
+.achievement-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.achievement {
+  background: #fff; border-radius: 12px; padding: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.07);
+  opacity: .4; filter: grayscale(1); transition: .2s;
+}
+.achievement.earned { opacity: 1; filter: none; }
+.achievement i { font-size: 1.5rem; color: #f59e0b; display: block; margin-bottom: 6px; }
+.ach-name { font-weight: 700; font-size: .82rem; }
+.ach-desc { font-size: .7rem; color: #6c757d; margin-top: 2px; }
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.btn { border-radius: 8px; }
+.btn-sm { border-radius: 6px; }
+.rounded-pill { border-radius: 999px !important; }
+.btn-success { --bs-btn-bg: #198754; }
+
+/* ── Forms ─────────────────────────────────────────────────────────── */
+.form-control:focus, .form-select:focus {
+  border-color: #198754; box-shadow: 0 0 0 .2rem rgba(25,135,84,.2);
+}
+
+/* ── Trail type badges ─────────────────────────────────────────────── */
+.badge-trail {
+  background: linear-gradient(135deg, #1a2e1a, #2d5a27);
+  color: #fff; font-size: .72rem; padding: 3px 9px; border-radius: 999px;
+}
+.badge-trail-sm {
+  background: #1a2e1a; color: #fff;
+  font-size: .65rem; padding: 1px 7px; border-radius: 999px;
+}
+
+/* ── Hazard pills ──────────────────────────────────────────────────── */
+.hazard-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.hazard-pill {
+  display: inline-flex; align-items: center;
+  background: #fff; border: 1px solid currentColor;
+  border-radius: 999px; padding: 2px 10px;
+  font-size: .72rem; font-weight: 600; opacity: .85;
+}
+
+/* ── Hazard checkboxes in form ─────────────────────────────────────── */
+.hazard-check-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+}
+.hazard-check-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: .78rem; cursor: pointer; padding: 4px 6px;
+  border: 1px solid #dee2e6; border-radius: 6px; background: #f8f9fa;
+  transition: background .15s;
+}
+.hazard-check-item:has(input:checked) {
+  background: #fff; border-color: #198754;
+}
+.hazard-check-item input { display: none; }
+
+/* ── Slope / elevation stats ───────────────────────────────────────── */
+.slope-card {
+  background: #fff; border-radius: 12px;
+  padding: 12px 14px; box-shadow: 0 1px 6px rgba(0,0,0,.07);
+}
+.slope-card-title {
+  font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  color: #6c757d; letter-spacing: .05em; margin-bottom: 10px;
+}
+.slope-stats-row {
+  display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between;
+}
+.slope-stat { text-align: center; flex: 1; min-width: 60px; }
+.slope-stat-val { font-size: 1.05rem; font-weight: 700; line-height: 1.1; }
+.slope-stat-label { font-size: .65rem; color: #6c757d; margin-top: 2px; }
+.slope-legend {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  font-size: .65rem; color: #6c757d; border-top: 1px solid #f0f0f0;
+  padding-top: 8px; margin-top: 4px;
+}
+
+/* ── Detail stats grid ─────────────────────────────────────────────── */
+.detail-stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.dstat {
+  background: #fff; border-radius: 10px; padding: 8px 4px;
+  text-align: center; box-shadow: 0 1px 5px rgba(0,0,0,.06);
+}
+.dstat i { font-size: 1.1rem; display: block; margin-bottom: 3px; }
+.dstat-val { font-size: .9rem; font-weight: 700; line-height: 1.1; }
+.dstat-label { font-size: .6rem; color: #6c757d; }
+
+/* ── Chart tab ─────────────────────────────────────────────────────── */
+.btn-chart-tab {
+  background: none; border: none; padding: 2px 8px;
+  font-size: .82rem; cursor: pointer; border-radius: 6px;
+  transition: background .12s;
+}
+.btn-chart-tab:hover { background: #f0f0f0; }
+.active-chart-tab { font-weight: 700 !important; color: #198754 !important; }
+
+/* ── Category rules box ────────────────────────────────────────────── */
+.category-rules-box {
+  border-left: 3px solid; border-radius: 8px;
+  background: #fff; padding: 10px 14px;
+  box-shadow: 0 1px 5px rgba(0,0,0,.06);
+}
+.rules-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px;
+}
+.rule-item {
+  font-size: .75rem; color: #374151; display: flex; align-items: center; gap: 4px;
+}
+
+/* ── text-orange (Bootstrap doesn't have it) ───────────────────────── */
+.text-orange { color: #fd7e14 !important; }
+
+/* ── Leaflet controls z-index fix ──────────────────────────────────── */
+.leaflet-top, .leaflet-bottom { z-index: 900; }

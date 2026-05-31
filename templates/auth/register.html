@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Registrati — HikePath{% endblock %}
+{% block content %}
+<div class="auth-page">
+  <div class="auth-logo">
+    <i class="bi bi-signpost-2-fill"></i>
+    <h1>HikePath</h1>
+    <p>Crea il tuo account gratuito</p>
+  </div>
+  <div class="auth-card">
+    <h5>Registrati</h5>
+    <form method="POST">
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" autofocus required>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" class="form-control" required>
+      </div>
+      <div class="mb-4">
+        <label class="form-label">Password <span class="text-muted small">(min. 6 caratteri)</span></label>
+        <input type="password" name="password" class="form-control" minlength="6" required>
+      </div>
+      <button type="submit" class="btn btn-success w-100 fw-semibold">Crea account</button>
+    </form>
+    <p class="mt-3 text-center text-muted small">
+      Hai già un account?
+      <a href="{{ url_for('login') }}" class="text-success">Accedi</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

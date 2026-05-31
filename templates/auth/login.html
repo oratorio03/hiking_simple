@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Accedi — HikePath{% endblock %}
+{% block content %}
+<div class="auth-page">
+  <div class="auth-logo">
+    <i class="bi bi-signpost-2-fill"></i>
+    <h1>HikePath</h1>
+    <p>Pianifica, esplora, conquista le vette</p>
+  </div>
+  <div class="auth-card">
+    <h5>Accedi</h5>
+    <form method="POST">
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input type="text" name="username" class="form-control" autofocus required>
+      </div>
+      <div class="mb-4">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required>
+      </div>
+      <button type="submit" class="btn btn-success w-100 fw-semibold">Accedi</button>
+    </form>
+    <p class="mt-3 text-center text-muted small">
+      Non hai un account?
+      <a href="{{ url_for('register') }}" class="text-success">Registrati</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

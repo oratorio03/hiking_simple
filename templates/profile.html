@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}Profilo — HikePath{% endblock %}
+{% block content %}
+<div class="profile-header">
+  <div class="profile-avatar">{{ current_user.username[0].upper() }}</div>
+  <h5 class="fw-bold mb-0 mt-2">{{ current_user.username }}</h5>
+  <p class="text-muted small">Membro dal {{ current_user.created_at.strftime('%B %Y') }}</p>
+</div>
+
+<div class="page-content">
+
+  <!-- Stats -->
+  <div class="stats-grid mb-4">
+    <div class="stat-card">
+      <i class="bi bi-signpost-split-fill text-success"></i>
+      <div class="stat-val">{{ current_user.routes|length }}</div>
+      <div class="stat-label">Percorsi</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-arrows-expand-vertical text-warning"></i>
+      <div class="stat-val">{{ current_user.total_km }}</div>
+      <div class="stat-label">km totali</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-graph-up-arrow text-danger"></i>
+      <div class="stat-val">{{ current_user.total_elevation }}</div>
+      <div class="stat-label">m dislivello</div>
+    </div>
+    <div class="stat-card">
+      <i class="bi bi-check-circle-fill text-primary"></i>
+      <div class="stat-val">{{ current_user.hikes_completed }}</div>
+      <div class="stat-label">Uscite</div>
+    </div>
+  </div>
+
+  <!-- Achievements -->
+  <h6 class="section-title">Achievement</h6>
+  {% set routes_count = current_user.routes|length %}
+  {% set hikes_count = current_user.hikes_completed %}
+  {% set km_total = current_user.total_km %}
+  {% set elev_total = current_user.total_elevation %}
+
+  {% set achievements = [
+    ('bi-map-fill',          'Esploratore',     'Primo percorso creato',        routes_count >= 1),
+    ('bi-signpost-split-fill','Planificatore',  '5 percorsi creati',            routes_count >= 5),
+    ('bi-check-circle-fill', 'Prima uscita',    'Prima escursione registrata',  hikes_count >= 1),
+    ('bi-arrows-expand-vertical','50 km',       'Pianificato 50+ km',           km_total >= 50),
+    ('bi-graph-up-arrow',    'Alpinista',       '2000m di dislivello totale',   elev_total >= 2000),
+    ('bi-star-fill',         'Veterano',        '10 uscite effettuate',         hikes_count >= 10),
+  ] %}
+
+  <div class="achievement-grid mb-4">
+    {% for icon, name, desc, earned in achievements %}
+    <div class="achievement {% if earned %}earned{% endif %}">
+      <i class="bi {{ icon }}"></i>
+      <div class="ach-name">{{ name }}</div>
+      <div class="ach-desc">{{ desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Recent logs -->
+  {% if logs %}
+  <h6 class="section-title">Ultime uscite</h6>
+  <div class="d-flex flex-column gap-2">
+    {% for log in logs[:10] %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <a href="{{ url_for('route_detail', route_id=log.route_id) }}"
+               class="fw-semibold small text-dark text-decoration-none">
+              {{ log.route.name }}
+            </a>
+            <div class="text-muted small">{{ log.date.strftime('%d %b %Y') }}</div>
+            {% if log.rating %}
+            <div class="text-warning small">{{ '★' * log.rating }}{{ '☆' * (5 - log.rating) }}</div>
+            {% endif %}
+          </div>
+          {% if log.duration_min %}
+          <span class="badge bg-success bg-opacity-20 text-success">{{ log.duration_min }}min</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="bi bi-calendar-x text-success"></i>
+    <p>Nessuna uscita registrata ancora.<br>Completa un percorso e registralo!</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
