@@ -364,7 +364,7 @@ class Route(db.Model):
 
     @property
     def start_point(self):
-        return _point_dict(_route_track_points(self) or _route_waypoint_points(self))
+        return _point_dict(_route_track_points(self, limit=2) or _route_waypoint_points(self))
 
     @staticmethod
     def slope_color(pct):
@@ -476,7 +476,7 @@ def _gpx_point(parent, tag, lat, lon):
     return ET.SubElement(parent, tag, lat=_gpx_degrees(lat), lon=_gpx_degrees(lon))
 
 
-def _route_track_points(route):
+def _route_track_points(route, limit=None):
     try:
         geometry = json.loads(route.geometry_json) if route.geometry_json else None
     except ValueError:
@@ -494,6 +494,8 @@ def _route_track_points(route):
         if lat_lon:
             ele = _finite_float(coord[2]) if len(coord) > 2 else None
             points.append((*lat_lon, ele))
+            if len(points) == limit:
+                break
     return points if len(points) >= 2 else []
 
 
@@ -533,8 +535,11 @@ def _haversine_km(lat1, lon1, lat2, lon2):
     return 2 * 6371.0 * math.asin(math.sqrt(min(1.0, a)))
 
 
+_APOSTROPHES = str.maketrans({'’': "'", '‘': "'", 'ʼ': "'", '`': "'"})
+
+
 def _fold_text(text):
-    decomposed = unicodedata.normalize('NFKD', (text or '').casefold())
+    decomposed = unicodedata.normalize('NFKD', (text or '').casefold().translate(_APOSTROPHES))
     return ''.join(c for c in decomposed if not unicodedata.combining(c))
 
 

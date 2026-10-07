@@ -6,6 +6,7 @@ let currentPos = null;
 const route = window.NAV_ROUTE;
 let routeMetrics = null;
 let waypointMetrics = null;
+let reachedStart = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavMap();
@@ -137,8 +138,10 @@ function updateOffRoute(lat, lng, accuracy) {
   } else if (waypoints.length) {
     const first = waypoints[0];
     const distanceM = haversine(lat, lng, first.lat, first.lng) * 1000;
-    // Without a track, only warn while the user is still before the first waypoint.
-    const beforeStart = !waypointMetrics || getRouteProgress(lat, lng, waypointMetrics).progressM < 30;
+    if (distanceM <= thresholdM) reachedStart = true;
+    // Without a track, warn while the user is before the first waypoint, or away from the waypoint line and has never reached the start.
+    const progress = waypointMetrics && getRouteProgress(lat, lng, waypointMetrics);
+    const beforeStart = !progress || progress.progressM < 30 || (!reachedStart && progress.distanceM > thresholdM);
     if (distanceM > thresholdM && beforeStart) {
       text = `Inizio sentiero a ${formatDistance(distanceM / 1000)}`;
     }

@@ -11,6 +11,7 @@ const OSM_RELIABLE_SLOPE_SEGMENT_M = 100;
 const VISUAL_SLOPE_CLAMP_PCT = 50;
 const GPX_MAX_FILE_BYTES = 15 * 1024 * 1024;
 const GPX_MAX_POINTS = 5000;
+const GPX_ELEV_THRESHOLD_M = 8;
 const SAVED_ROUTE_COLOR = '#6f42c1';
 const NEARBY_RADIUS_KM = 25;
 const TECHNICAL_WAYPOINT_NAMES = {
@@ -21,6 +22,7 @@ const TECHNICAL_WAYPOINT_NAMES = {
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, osmTrailsLayer, elevChart, slopeChart;
 let chartHoverMarker = null;
+let elevSampleCoords = null;
 let waypoints     = [];
 let routeGeometry = null;
 let osmTrailsVisible = false;
@@ -70,10 +72,13 @@ function initMap() {
   ).addTo(map);
 
   map.setView([45.8, 10.0], 9);
+  let viewMoved = false;
+  map.once('movestart', () => { viewMoved = true; });
   savedRouteLayer = L.layerGroup().addTo(map);
   navigator.geolocation?.getCurrentPosition(p => {
     // A late fix must not pull the map away from what the user is already looking at.
-    if (routeGeometry === null && !waypoints.length && !placeMarker && !savedRouteLayer.getLayers().length) {
+    if (!viewMoved && routeGeometry === null && !waypoints.length && !osmTrailsVisible && !myRoutesVisible &&
+        !placeMarker && !savedRouteLayer.getLayers().length) {
       map.setView([p.coords.latitude, p.coords.longitude], 13);
     }
   }, null, { timeout: 10000, maximumAge: 300000 });
@@ -100,7 +105,11 @@ function setRouteProfile(profile) {
 // ── Waypoints ─────────────────────────────────────────────────────────────
 
 async function addWaypoint(lat, lng, name = null, options = {}) {
-  if (!name) name = await reverseGeocode(lat, lng);
+  if (!name) {
+    name = await reverseGeocode(lat, lng);
+    // A GPX or OSM route may have replaced the manual route while the name was loading.
+    if (routeSource !== 'manual') return;
+  }
 
   const id     = Date.now() + Math.random();
   const marker = makeMarker(lat, lng, waypoints.length, name);
@@ -185,7 +194,7 @@ function refreshMarkerIcons() {
 async function calcRoute() {
   if (waypoints.length < 2) return;
   routeSource = 'manual';
-  routeAnalysisId += 1;
+  const analysisId = ++routeAnalysisId;
   showSpinner('Calcolo percorso…');
   setStatus('', '');
 
@@ -204,6 +213,7 @@ async function calcRoute() {
     }
 
     const data    = await res.json();
+    if (isStaleRouteCalc(analysisId)) return;
     const feature = data.features?.[0];
     if (!feature) throw new Error('No route in response');
 
@@ -229,25 +239,33 @@ async function calcRoute() {
       const elevStatus = document.getElementById('elev-status');
       if (elevStatus) elevStatus.style.display = 'none';
     } else {
-      await fetchElevation();
+      await fetchElevation({ analysisId });
     }
 
   } catch (err) {
+    if (isStaleRouteCalc(analysisId)) return;
     console.warn('Brouter failed, falling back to OSRM:', err.message);
     setStatus('Brouter non raggiungibile, uso routing alternativo…', 'muted');
-    await calcRouteOSRM();
+    await calcRouteOSRM(analysisId);
   }
+}
+
+function isStaleRouteCalc(analysisId) {
+  if (analysisId === routeAnalysisId) return false;
+  hideSpinner();
+  return true;
 }
 
 // ── OSRM routing (fallback) ───────────────────────────────────────────────
 
-async function calcRouteOSRM() {
+async function calcRouteOSRM(analysisId) {
   const coords = waypoints.map(w => `${w.lng},${w.lat}`).join(';');
   try {
     const res  = await fetchWithTimeout(
       `${OSRM}/${coords}?overview=full&geometries=geojson`, {}, 12000
     );
     const data = await res.json();
+    if (isStaleRouteCalc(analysisId)) return;
 
     if (data.code !== 'Ok' || !data.routes.length) {
       setStatus('Nessun percorso trovato. Sposta i waypoint su sentieri o strade.', 'warning');
@@ -265,9 +283,10 @@ async function calcRouteOSRM() {
     updateStatsBar();
     updateBtnState();
     hideSpinner();
-    await fetchElevation();
+    await fetchElevation({ analysisId });
 
   } catch (err) {
+    if (isStaleRouteCalc(analysisId)) return;
     hideSpinner();
     setStatus('Impossibile calcolare il percorso. Controlla la connessione.', 'danger');
     console.error('OSRM fallback failed:', err);
@@ -563,6 +582,8 @@ function clearRoute() {
 // ── GPX import ────────────────────────────────────────────────────────────
 
 function parseGpx(text, fallbackName = '') {
+  // GPX never needs a DTD; refusing it keeps the XML parser from resolving external entities.
+  if (text.includes('<!DOCTYPE')) throw new Error('File GPX non valido: dichiarazione DOCTYPE non supportata.');
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   if (doc.getElementsByTagNameNS('*', 'parsererror').length) {
     throw new Error('File GPX non valido: XML malformato.');
@@ -646,7 +667,7 @@ async function importGpxFile(file) {
 
   let text;
   try {
-    text = await file.text();
+    text = decodeGpxBytes(new Uint8Array(await file.arrayBuffer()));
   } catch {
     setStatus('Impossibile leggere il file GPX.', 'danger');
     return;
@@ -691,6 +712,23 @@ async function importGpxFile(file) {
   const importedText = `Traccia GPX importata (${parsed.pointCount.toLocaleString('it-IT')} punti).`;
   if (hasElevation) setStatus(`${importedText}${slopeQualityText()}`, 'success');
   else setStatus(`${importedText} Dati altimetrici non disponibili.`, 'warning');
+}
+
+function decodeGpxBytes(bytes) {
+  let label = 'utf-8';
+  if (bytes[0] === 0xFF && bytes[1] === 0xFE) label = 'utf-16le';
+  else if (bytes[0] === 0xFE && bytes[1] === 0xFF) label = 'utf-16be';
+  else {
+    const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, 200));
+    const declared = head.match(/<\?xml[^>]*encoding\s*=\s*["']([\w.:-]+)["']/)?.[1];
+    // A declaration readable as ASCII means the bytes can't be UTF-16, whatever it claims.
+    if (declared && !/16/.test(declared)) label = declared;
+  }
+  try {
+    return new TextDecoder(label).decode(bytes);
+  } catch {
+    return new TextDecoder().decode(bytes);
+  }
 }
 
 function prefillEmptyField(id, value) {
@@ -741,6 +779,7 @@ function extractBrouterElevation(coords, props) {
     sampled.push(allElevs[allElevs.length - 1]);
   }
   routeStats.elevSeries = sampled;
+  elevSampleCoords = null;
 
   updateSlopeStats(coords, allElevs);
 
@@ -906,15 +945,12 @@ function processElevation(elevs, coords = null, options = {}) {
   const noisy = hasNoisyElevation(options.source);
   const statsElevs = noisy ? smoothElevationSeries(elevs, 3) : elevs;
   routeStats.elevSeries = elevs;
+  elevSampleCoords = coords;
   routeStats.maxElev    = Math.round(Math.max(...statsElevs));
   routeStats.minElev    = Math.round(Math.min(...statsElevs));
   routeStats.equivalentSlopePct = calculateEquivalentSlope(statsElevs);
 
-  let gain = 0, loss = 0;
-  for (let i = 1; i < statsElevs.length; i++) {
-    const diff = statsElevs[i] - statsElevs[i - 1];
-    if (diff > 0) gain += diff; else loss += Math.abs(diff);
-  }
+  const { gain, loss } = sumElevationChanges(statsElevs, options.source === 'gpx' ? GPX_ELEV_THRESHOLD_M : 0);
   routeStats.elevGain = Math.round(gain);
   routeStats.elevLoss = Math.round(loss);
 
@@ -922,6 +958,23 @@ function processElevation(elevs, coords = null, options = {}) {
     rawElevs: elevs,
     source: options.source
   });
+}
+
+// Climbs and descents count between turning points at least thresholdM apart, so GPS altitude jitter does not add up.
+function sumElevationChanges(elevs, thresholdM) {
+  let gain = 0, loss = 0, turn = elevs[0], extreme = elevs[0];
+  for (let i = 1; i < elevs.length; i++) {
+    const e = elevs[i];
+    if (extreme >= turn ? e >= extreme : e <= extreme) {
+      extreme = e;
+    } else if (Math.abs(e - extreme) >= thresholdM) {
+      if (extreme > turn) gain += extreme - turn; else loss += turn - extreme;
+      turn = extreme;
+      extreme = e;
+    }
+  }
+  if (extreme > turn) gain += extreme - turn; else loss += turn - extreme;
+  return { gain, loss };
 }
 
 function calculateEquivalentSlope(elevs) {
@@ -1176,7 +1229,7 @@ function showChartRouteMarker(index, totalPoints, metric, centerMap = false) {
   if (lat == null || lng == null) return;
 
   const km = routeStats.distance ? routeStats.distance * ratio : 0;
-  const elev = coord[2] ?? routeStats.elevSeries?.[index];
+  const elev = routePoint.elev ?? routeStats.elevSeries?.[index];
   const value = Number.isFinite(metric.value) ? metric.value : null;
   const valueText = value == null
     ? ''
@@ -1197,7 +1250,9 @@ function showChartRouteMarker(index, totalPoints, metric, centerMap = false) {
 }
 
 function getRoutePointForChartIndex(index, totalPoints) {
-  const coords = routeGeometry?.coordinates;
+  // Elevation samples can be spaced by distance rather than by vertex, so map onto them when known.
+  const samples = elevSampleCoords?.length ? elevSampleCoords : null;
+  const coords = samples || routeGeometry?.coordinates;
   if (!coords || !coords.length || !totalPoints) return null;
 
   const ratio = totalPoints <= 1 ? 0 : index / (totalPoints - 1);
@@ -1206,7 +1261,8 @@ function getRoutePointForChartIndex(index, totalPoints) {
     Math.round(ratio * (coords.length - 1))
   ));
 
-  return { coord: coords[routeIndex], ratio };
+  const coord = coords[routeIndex];
+  return { coord, ratio, elev: samples ? routeStats.elevSeries[routeIndex] : coord[2] };
 }
 
 function clearChartRouteMarker() {
@@ -1436,10 +1492,14 @@ async function search(query) {
   query = query.trim();
   if (!query) return;
   const requestId = ++searchRequestId;
-  const [routes, places] = await Promise.allSettled([
-    fetchOwnRoutes({ q: query, limit: 10 }),
-    searchPlaces(query)
-  ]);
+  const routesRequest = fetchOwnRoutes({ q: query, limit: 10 });
+  const placesRequest = searchPlaces(query);
+  showSearchResults({ routes: [], places: [], pending: 'Cerco…' });
+  // Own routes come from our server and are usually ready long before Nominatim answers.
+  routesRequest.then(routes => {
+    if (requestId === searchRequestId) showSearchResults({ routes, places: [], pending: 'Cerco luoghi…' });
+  }, () => {});
+  const [routes, places] = await Promise.allSettled([routesRequest, placesRequest]);
   if (requestId !== searchRequestId) return;
   if (routes.status === 'rejected') console.warn('Own route search failed', routes.reason);
   if (places.status === 'rejected') console.warn('Place search failed', places.reason);
@@ -1478,12 +1538,13 @@ async function searchPlaces(query) {
   }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
 }
 
-function showSearchResults({ routes, places, routesFailed, placesFailed }) {
+function showSearchResults({ routes, places, routesFailed, placesFailed, pending }) {
   const box = document.getElementById('search-results');
   box.replaceChildren();
   if (routes.length) {
     box.appendChild(searchGroupHeader('bi-signpost-split saved-route-icon', 'I tuoi percorsi'));
     routes.forEach(route => box.appendChild(searchResultButton(route.name, savedRouteSummary(route), () => {
+      searchRequestId += 1;
       closeSearchResults();
       showSavedRouteOnMap(route);
     })));
@@ -1492,7 +1553,13 @@ function showSearchResults({ routes, places, routesFailed, placesFailed }) {
     box.appendChild(searchGroupHeader('bi-geo-alt-fill text-success', 'Luoghi'));
     places.forEach(place => box.appendChild(searchResultButton(place.label, '', () => selectPlace(place))));
   }
-  if (!routes.length && !places.length) box.appendChild(createEl('div', 'list-group-item small', 'Nessun risultato'));
+  if (pending) {
+    const row = createEl('div', 'list-group-item small text-muted');
+    row.append(createEl('span', 'spinner-border spinner-border-sm me-2'), pending);
+    box.appendChild(row);
+  } else if (!routes.length && !places.length) {
+    box.appendChild(createEl('div', 'list-group-item small', 'Nessun risultato'));
+  }
   if (routesFailed) box.appendChild(createEl('div', 'list-group-item small text-muted', 'Ricerca nei tuoi percorsi non riuscita.'));
   if (placesFailed) box.appendChild(createEl('div', 'list-group-item small text-muted', 'Ricerca luoghi non disponibile, riprova più tardi.'));
   box.style.display = 'block';
@@ -1667,7 +1734,7 @@ async function toggleMyRoutes() {
     try {
       const editId = window.PRELOAD_ROUTE?.id;
       const routes = (await fetchOwnRoutes({ limit: 50 })).filter(r => r.id !== editId);
-      myRoutesLayer = L.layerGroup(routes
+      myRoutesLayer = L.featureGroup(routes
         .map(r => savedRouteMapLayer(r, { weight: 3, opacity: 0.7 })?.bindTooltip(escapeHtml(r.name), { sticky: true }))
         .filter(Boolean));
     } catch (err) {
@@ -1678,9 +1745,23 @@ async function toggleMyRoutes() {
     if (!myRoutesLayer) { updateMyRoutesButton(); return; }
   }
 
+  const layers = myRoutesLayer.getLayers();
+  if (!layers.length) {
+    updateMyRoutesButton();
+    setStatus(window.PRELOAD_ROUTE ? 'Nessun altro percorso salvato.' : 'Non hai ancora percorsi salvati.', 'muted');
+    return;
+  }
   myRoutesLayer.addTo(map);
   myRoutesVisible = true;
   updateMyRoutesButton();
+
+  const view = map.getBounds();
+  if (layers.some(l => l.getBounds ? view.intersects(l.getBounds()) : view.contains(l.getLatLng()))) return;
+  if (routeGeometry === null && !waypoints.length) {
+    map.fitBounds(myRoutesLayer.getBounds(), { padding: [30, 30], maxZoom: 14 });
+  } else {
+    setStatus('I tuoi percorsi sono fuori dalla zona visibile della mappa.', 'muted');
+  }
 }
 
 function updateMyRoutesButton() {
@@ -1820,6 +1901,8 @@ async function loadExistingRoute(route) {
     drawRoute();
     updateStatsBar();
     updateBtnState();
+    // A recorded track can't be rebuilt, so its start/end are not editable markers (buildSaveWaypoints derives them).
+    if (routeSource === 'gpx') return;
 
     const savedWaypoints = (route.waypoints || []).length
       ? route.waypoints

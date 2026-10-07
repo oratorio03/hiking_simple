@@ -6,10 +6,12 @@
   .main { display:flex; flex-direction:column; height:calc(100vh - 56px - 60px); }
   #map { flex: 0 0 52vh; min-height: 200px; position:relative; }
   #panel { flex: 1; overflow-y: auto; background: #fff; }
+  #search-results { max-height: 200px; }
   @media (min-width: 768px) {
     .main { flex-direction: row; height: calc(100vh - 56px - 60px); }
     #map { flex: 1; height: 100%; }
     #panel { flex: 0 0 360px; height: 100%; border-left: 1px solid #dee2e6; }
+    #search-results { max-height: 260px; }
   }
   .map-spinner {
     position:absolute; top:10px; left:50%; transform:translateX(-50%);
@@ -22,7 +24,7 @@
     filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));
   }
   .saved-route-icon { color:#6f42c1; }
-  .nearby-close { font-size:.6rem; }
+  .nearby-close { font-size:.6rem; padding:.9rem; margin:-.75rem -.9rem -.75rem 0; }
   .nearby-list { max-height:180px; overflow-y:auto; }
 </style>
 {% endblock %}
@@ -49,7 +51,7 @@
         <button class="btn btn-outline-secondary" id="search-btn">Vai</button>
       </div>
       <div id="search-results" class="list-group mt-1 shadow"
-           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999;max-height:260px;overflow-y:auto"></div>
+           style="display:none;position:absolute;left:1rem;right:1rem;z-index:9999;overflow-y:auto"></div>
     </div>
 
     <!-- Own routes near the selected place -->
