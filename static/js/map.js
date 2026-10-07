@@ -9,6 +9,12 @@ const MIN_SLOPE_SEGMENT_M = 25;
 const OSM_ELEV_SAMPLE_INTERVAL_M = 40;
 const OSM_RELIABLE_SLOPE_SEGMENT_M = 100;
 const VISUAL_SLOPE_CLAMP_PCT = 50;
+const GPX_MAX_FILE_BYTES = 15 * 1024 * 1024;
+const GPX_MAX_POINTS = 5000;
+const TECHNICAL_WAYPOINT_NAMES = {
+  osm_single: ['Inizio sentiero OSM', 'Fine sentiero OSM'],
+  gpx: ['Inizio traccia GPX', 'Fine traccia GPX']
+};
 
 // ── State ─────────────────────────────────────────────────────────────────
 let map, routeLayer, osmTrailsLayer, elevChart, slopeChart;
@@ -17,7 +23,7 @@ let waypoints     = [];
 let routeGeometry = null;
 let osmTrailsVisible = false;
 let selectedOsmTrail = null;
-let routeSource = 'manual'; // 'manual' | 'osm_single' | 'osm_composed'
+let routeSource = 'manual'; // 'manual' | 'osm_single' | 'osm_composed' | 'gpx'
 let routeAnalysisId = 0;
 let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
 let routeStats    = {
@@ -95,7 +101,7 @@ async function addWaypoint(lat, lng, name = null, options = {}) {
     const pos = marker.getLatLng();
     wp.lat = pos.lat; wp.lng = pos.lng;
     wp.name = await reverseGeocode(pos.lat, pos.lng);
-    marker.setPopupContent(wp.name);
+    marker.setPopupContent(escapeHtml(wp.name));
     refreshMarkerIcons();
     updateWpList();
     if (waypoints.length >= 2) await calcRoute();
@@ -146,7 +152,7 @@ function makeMarker(lat, lng, idx, name) {
     html: `<div class="wp-marker" style="background:${color}">${idx + 1}</div>`,
     className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
   });
-  return L.marker([lat, lng], { draggable: true, icon }).bindPopup(name || '');
+  return L.marker([lat, lng], { draggable: true, icon }).bindPopup(escapeHtml(name));
 }
 
 function refreshMarkerIcons() {
@@ -158,7 +164,7 @@ function refreshMarkerIcons() {
       className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16]
     });
     wp.marker.setIcon(icon);
-    wp.marker.setPopupContent(wp.name || '');
+    wp.marker.setPopupContent(escapeHtml(wp.name));
   });
 }
 
@@ -276,7 +282,7 @@ async function toggleOsmTrails() {
     clearOsmTrailSelection();
     osmTrailsVisible = false;
     if (btn) {
-      btn.className = 'btn btn-sm btn-outline-success w-100';
+      btn.className = 'btn btn-sm btn-outline-success flex-fill';
       btn.innerHTML = '<i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili';
     }
     setStatus('', '');
@@ -308,7 +314,7 @@ async function toggleOsmTrails() {
     osmTrailsVisible = true;
     if (btn) {
       btn.disabled = false;
-      btn.className = 'btn btn-sm btn-success w-100';
+      btn.className = 'btn btn-sm btn-success flex-fill';
       btn.innerHTML = '<i class="bi bi-eye-slash me-1"></i>Nascondi sentieri OSM';
     }
     setStatus(`${geojson.features.length} sentieri OSM caricati nella zona visibile.`, 'success');
@@ -316,7 +322,7 @@ async function toggleOsmTrails() {
     console.warn('OSM trails load failed:', err);
     if (btn) {
       btn.disabled = false;
-      btn.className = 'btn btn-sm btn-outline-success w-100';
+      btn.className = 'btn btn-sm btn-outline-success flex-fill';
       btn.innerHTML = '<i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili';
     }
     setStatus('Impossibile caricare i sentieri OSM. Riduci lo zoom o riprova tra poco.', 'warning');
@@ -433,25 +439,7 @@ async function useSelectedOsmTrailAsRoute() {
     type: 'LineString',
     coordinates: selectedOsmTrail.feature.geometry.coordinates
   };
-  routeStats = {
-    distance: selectedOsmTrail.lengthKm || estimateLineLengthKm(routeGeometry) || 0,
-    duration: null,
-    elevGain: 0,
-    elevLoss: 0,
-    maxElev: null,
-    minElev: null,
-    avgSlope: null,
-    maxSlopeAsc: null,
-    maxSlopeDesc: null,
-    elevSeries: [],
-    slopeSeriesRaw: [],
-    slopeSeriesReliable: [],
-    slopeSeries: [],
-    visualSlopeSeries: [],
-    slopeQuality: null,
-    equivalentSlopePct: null,
-    displayedSlopeStats: null
-  };
+  routeStats = blankRouteStats(selectedOsmTrail.lengthKm || estimateLineLengthKm(routeGeometry) || 0);
   clearChartRouteMarker();
   document.getElementById('chart-panel')?.classList.add('d-none');
   map.closePopup();
@@ -475,6 +463,28 @@ async function useSelectedOsmTrailAsRoute() {
     updateStatsBar();
     setStatus('Sentiero OSM usato come percorso. Dati altimetrici non disponibili.', 'warning');
   }
+}
+
+function blankRouteStats(distance) {
+  return {
+    distance,
+    duration: null,
+    elevGain: 0,
+    elevLoss: 0,
+    maxElev: null,
+    minElev: null,
+    avgSlope: null,
+    maxSlopeAsc: null,
+    maxSlopeDesc: null,
+    elevSeries: [],
+    slopeSeriesRaw: [],
+    slopeSeriesReliable: [],
+    slopeSeries: [],
+    visualSlopeSeries: [],
+    slopeQuality: null,
+    equivalentSlopePct: null,
+    displayedSlopeStats: null
+  };
 }
 
 function estimateLineLengthKm(geometry) {
@@ -538,6 +548,160 @@ function clearRoute() {
   updateBtnState();
 }
 
+// ── GPX import ────────────────────────────────────────────────────────────
+
+function parseGpx(text, fallbackName = '') {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagNameNS('*', 'parsererror').length) {
+    throw new Error('File GPX non valido: XML malformato.');
+  }
+
+  const byTag = tag => Array.from(doc.getElementsByTagNameNS('*', tag));
+  let pointEls = byTag('trkpt');
+  if (!pointEls.length) pointEls = byTag('rtept');
+  if (!pointEls.length) throw new Error('Nessuna traccia trovata nel file GPX.');
+
+  const points = [];
+  for (const el of pointEls) {
+    const lat = parseGpxNumber(el.getAttribute('lat'));
+    const lon = parseGpxNumber(el.getAttribute('lon'));
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    const prev = points[points.length - 1];
+    if (prev && prev.lat === lat && prev.lon === lon) continue;
+    const ele = parseGpxNumber(gpxChild(el, 'ele')?.textContent);
+    points.push({ lat, lon, ele: Number.isFinite(ele) ? ele : null });
+  }
+  if (points.length < 2) throw new Error('La traccia GPX contiene meno di 2 punti validi.');
+
+  const hasElevation = points.filter(p => p.ele !== null).length >= points.length * 0.9;
+  const elevs = hasElevation ? fillElevationGaps(points.map(p => p.ele)) : null;
+  let coords = points.map((p, i) => hasElevation ? [p.lon, p.lat, elevs[i]] : [p.lon, p.lat]);
+  if (coords.length > GPX_MAX_POINTS) {
+    const step = (coords.length - 1) / (GPX_MAX_POINTS - 1);
+    coords = Array.from({ length: GPX_MAX_POINTS }, (_, i) => coords[Math.round(i * step)]);
+  }
+
+  // GPX 1.0 keeps name/desc directly under <gpx> instead of <metadata>.
+  const root = doc.documentElement;
+  const metadata = gpxChild(root, 'metadata');
+  const firstTrk = byTag('trk')[0];
+  const firstRte = byTag('rte')[0];
+  return {
+    name: gpxChildText(metadata, 'name') || gpxChildText(root, 'name') ||
+      gpxChildText(firstTrk, 'name') || gpxChildText(firstRte, 'name') || fallbackName,
+    desc: gpxChildText(metadata, 'desc') || gpxChildText(root, 'desc') || gpxChildText(firstTrk, 'desc'),
+    coords,
+    hasElevation,
+    pointCount: coords.length
+  };
+}
+
+function parseGpxNumber(value) {
+  return value != null && String(value).trim() !== '' ? Number(value) : NaN;
+}
+
+function gpxChild(el, tag) {
+  return el ? Array.from(el.children).find(c => c.localName === tag) || null : null;
+}
+
+function gpxChildText(el, tag) {
+  return gpxChild(el, tag)?.textContent.trim() || '';
+}
+
+function fillElevationGaps(elevs) {
+  const filled = elevs.slice();
+  let prev = -1;
+  for (let i = 0; i <= filled.length; i++) {
+    if (i < filled.length && filled[i] === null) continue;
+    for (let j = prev + 1; j < i; j++) {
+      if (prev < 0) filled[j] = filled[i];
+      else if (i === filled.length) filled[j] = filled[prev];
+      else filled[j] = filled[prev] + (filled[i] - filled[prev]) * (j - prev) / (i - prev);
+    }
+    prev = i;
+  }
+  return filled;
+}
+
+async function importGpxFile(file) {
+  const input = document.getElementById('gpx-file');
+  if (input) input.value = '';
+  if (!file) return;
+  if (file.size > GPX_MAX_FILE_BYTES) {
+    setStatus('File GPX troppo grande (massimo 15 MB).', 'danger');
+    return;
+  }
+
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    setStatus('Impossibile leggere il file GPX.', 'danger');
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = parseGpx(text, file.name.replace(/\.[^.]*$/, ''));
+  } catch (err) {
+    setStatus(err.message, 'danger');
+    return;
+  }
+
+  clearManualWaypoints();
+  clearOsmTrailSelection();
+  map.closePopup();
+  routeSource = 'gpx';
+  routeGeometry = { type: 'LineString', coordinates: parsed.coords };
+  routeStats = blankRouteStats(estimateLineLengthKm(routeGeometry) || 0);
+  clearChartRouteMarker();
+  document.getElementById('chart-panel')?.classList.add('d-none');
+  const analysisId = ++routeAnalysisId;
+  drawRoute();
+  updateStatsBar();
+  updateWpList();
+  updateBtnState();
+  prefillEmptyField('route-name', parsed.name);
+  prefillEmptyField('route-desc', parsed.desc);
+  setStatus('Analisi altimetrica della traccia GPX...', 'muted');
+
+  // 3D tracks take fetchElevation's file-elevation branch, so no network request is made.
+  const hasElevation = await fetchElevation({
+    loadingText: 'Analisi altimetrica della traccia GPX...',
+    fallbackText: 'Tentativo con API altimetrica alternativa...',
+    failureText: 'Dati altimetrici non disponibili per questa traccia GPX.',
+    analysisId
+  });
+  if (analysisId !== routeAnalysisId) return;
+
+  routeStats.duration = estimateWalkingMinutes(routeStats.distance, routeStats.elevGain, routeStats.elevLoss);
+  updateStatsBar();
+  const importedText = `Traccia GPX importata (${parsed.pointCount.toLocaleString('it-IT')} punti).`;
+  if (hasElevation) setStatus(`${importedText}${slopeQualityText()}`, 'success');
+  else setStatus(`${importedText} Dati altimetrici non disponibili.`, 'warning');
+}
+
+function prefillEmptyField(id, value) {
+  const el = document.getElementById(id);
+  if (!el || !value || el.value.trim()) return;
+  el.value = el.maxLength > 0 ? value.slice(0, el.maxLength) : value;
+}
+
+function extractFileElevation(coords) {
+  const sampled = resampleLineStringByDistance(coords, OSM_ELEV_SAMPLE_INTERVAL_M);
+  const elevs = sampled.map(c => c[2]);
+  if (elevs.length < 2 || !elevs.every(Number.isFinite)) return null;
+  processElevation(elevs, sampled, { source: 'gpx' });
+  return elevs;
+}
+
+// DIN 33466 hiking time.
+function estimateWalkingMinutes(distanceKm, gainM, lossM) {
+  const horizontalH = (distanceKm || 0) / 4;
+  const verticalH = (gainM || 0) / 300 + (lossM || 0) / 500;
+  return (Math.max(horizontalH, verticalH) + Math.min(horizontalH, verticalH) / 2) * 60;
+}
+
 // ── Elevation from Brouter 3D coords ─────────────────────────────────────
 
 function extractBrouterElevation(coords, props) {
@@ -590,10 +754,10 @@ async function fetchElevation(options = {}) {
   const coords = routeGeometry.coordinates;
   const sampled = getElevationSampleCoords(coords);
 
-  // If Brouter already embedded elevation, use it
+  // If Brouter or the GPX file already embedded elevation, use it
   if (sampled[0]?.length >= 3 && sampled[0][2] != null) {
     if (!isCurrentAnalysis()) return false;
-    const elevs = extractBrouterElevation(coords, {});
+    const elevs = routeSource === 'gpx' ? extractFileElevation(coords) : extractBrouterElevation(coords, {});
     if (elevs) {
       if (elevStatus) elevStatus.style.display = 'none';
       drawElevChart(elevs);
@@ -652,15 +816,15 @@ async function fetchElevation(options = {}) {
   drawSlopeChart(routeStats.slopeSeries);
   updateStatsBar();
   document.getElementById('chart-panel')?.classList.remove('d-none');
-  if (successText) {
-    const qualityText = routeStats.slopeQuality === 'rumorosa'
-      ? ' Pendenza reale non affidabile: dati altimetrici rumorosi. Mostro pendenza equivalente netta.'
-      : routeStats.slopeQuality
-        ? ' Pendenza stimata da dati altimetrici, possibili errori.'
-        : '';
-    setStatus(`${successText}${qualityText}`, 'success');
-  }
+  if (successText) setStatus(`${successText}${slopeQualityText()}`, 'success');
   return true;
+}
+
+function slopeQualityText() {
+  if (routeStats.slopeQuality === 'rumorosa') {
+    return ' Pendenza reale non affidabile: dati altimetrici rumorosi. Mostro pendenza equivalente netta.';
+  }
+  return routeStats.slopeQuality ? ' Pendenza stimata da dati altimetrici, possibili errori.' : '';
 }
 
 function reloadElevation() {
@@ -714,15 +878,21 @@ function resampleLineStringByDistance(coords, intervalM) {
 }
 
 function interpolateCoord(a, b, ratio) {
-  return [
+  const point = [
     a[0] + (b[0] - a[0]) * ratio,
     a[1] + (b[1] - a[1]) * ratio
   ];
+  if (Number.isFinite(a[2]) && Number.isFinite(b[2])) point.push(a[2] + (b[2] - a[2]) * ratio);
+  return point;
+}
+
+function hasNoisyElevation(source) {
+  return source === 'osm_single' || source === 'gpx';
 }
 
 function processElevation(elevs, coords = null, options = {}) {
-  const isOsm = options.source === 'osm_single';
-  const statsElevs = isOsm ? smoothElevationSeries(elevs, 3) : elevs;
+  const noisy = hasNoisyElevation(options.source);
+  const statsElevs = noisy ? smoothElevationSeries(elevs, 3) : elevs;
   routeStats.elevSeries = elevs;
   routeStats.maxElev    = Math.round(Math.max(...statsElevs));
   routeStats.minElev    = Math.round(Math.min(...statsElevs));
@@ -753,9 +923,9 @@ function calculateEquivalentSlope(elevs) {
 // ── Charts ────────────────────────────────────────────────────────────────
 
 function updateSlopeStats(coords, elevs, options = {}) {
-  const isOsm = options.source === 'osm_single';
+  const noisy = hasNoisyElevation(options.source);
   const rawSlopes = buildSlopeSeries(coords, options.rawElevs || elevs, MIN_SLOPE_SEGMENT_M);
-  const reliableSlopes = isOsm
+  const reliableSlopes = noisy
     ? buildSlopeSeries(coords, elevs, OSM_RELIABLE_SLOPE_SEGMENT_M)
     : rawSlopes;
 
@@ -763,8 +933,8 @@ function updateSlopeStats(coords, elevs, options = {}) {
   routeStats.slopeSeriesReliable = reliableSlopes;
   routeStats.slopeSeries = reliableSlopes;
   routeStats.visualSlopeSeries = buildVisualSlopeSeries(reliableSlopes);
-  routeStats.slopeQuality = assessSlopeQuality(rawSlopes, reliableSlopes, coords, isOsm);
-  routeStats.displayedSlopeStats = buildDisplayedSlopeStats(reliableSlopes, routeStats.slopeQuality, isOsm);
+  routeStats.slopeQuality = assessSlopeQuality(rawSlopes, reliableSlopes, coords, noisy);
+  routeStats.displayedSlopeStats = buildDisplayedSlopeStats(reliableSlopes, routeStats.slopeQuality, noisy);
 
   routeStats.avgSlope = routeStats.displayedSlopeStats?.avg ?? null;
   routeStats.maxSlopeAsc = routeStats.displayedSlopeStats?.maxAsc ?? null;
@@ -804,8 +974,8 @@ function buildVisualSlopeSeries(slopes) {
   return smoothed.map(s => Math.max(-VISUAL_SLOPE_CLAMP_PCT, Math.min(VISUAL_SLOPE_CLAMP_PCT, s)));
 }
 
-function assessSlopeQuality(rawSlopes, reliableSlopes, coords, isOsm) {
-  if (!isOsm) return null;
+function assessSlopeQuality(rawSlopes, reliableSlopes, coords, noisy) {
+  if (!noisy) return null;
   if (!coords || coords.length < 5 || routeStats.distance < 0.3 || reliableSlopes.length < 2) {
     return 'limitata';
   }
@@ -824,12 +994,12 @@ function assessSlopeQuality(rawSlopes, reliableSlopes, coords, isOsm) {
   return 'stimata';
 }
 
-function buildDisplayedSlopeStats(reliableSlopes, slopeQuality, isOsm) {
+function buildDisplayedSlopeStats(reliableSlopes, slopeQuality, noisy) {
   if (!reliableSlopes.length) {
     return { usable: false, label: 'non disponibile', avg: null, maxAsc: null, maxDesc: null };
   }
 
-  if (!isOsm) {
+  if (!noisy) {
     const absSlopes = reliableSlopes.map(Math.abs);
     return {
       usable: true,
@@ -911,7 +1081,7 @@ function isValidRouteGeometry(geometry) {
     geometry.coordinates.length >= 2;
 }
 
-function technicalWaypointsFromGeometry(geometry) {
+function technicalWaypointsFromGeometry(geometry, [startName, endName]) {
   if (!isValidRouteGeometry(geometry)) return [];
 
   const coords = geometry.coordinates;
@@ -922,26 +1092,26 @@ function technicalWaypointsFromGeometry(geometry) {
   }
 
   return [
-    { lat: start[1], lng: start[0], name: 'Inizio sentiero OSM' },
-    { lat: end[1], lng: end[0], name: 'Fine sentiero OSM' }
+    { lat: start[1], lng: start[0], name: startName },
+    { lat: end[1], lng: end[0], name: endName }
   ];
 }
 
 function buildSaveWaypoints() {
   const manualWaypoints = waypoints.map(({ lat, lng, name }) => ({ lat, lng, name }));
-  if (manualWaypoints.length || routeSource !== 'osm_single') return manualWaypoints;
-  return technicalWaypointsFromGeometry(routeGeometry);
+  const technicalNames = TECHNICAL_WAYPOINT_NAMES[routeSource];
+  if (manualWaypoints.length || !technicalNames) return manualWaypoints;
+  return technicalWaypointsFromGeometry(routeGeometry, technicalNames);
 }
 
 function inferRouteSource(route) {
   const savedWaypoints = route.waypoints || [];
-  const hasOsmTechnicalWaypoints = savedWaypoints.length === 2 &&
-    savedWaypoints[0]?.name === 'Inizio sentiero OSM' &&
-    savedWaypoints[1]?.name === 'Fine sentiero OSM';
+  if (!isValidRouteGeometry(route.geometry) || savedWaypoints.length !== 2) return 'manual';
 
-  return isValidRouteGeometry(route.geometry) && hasOsmTechnicalWaypoints
-    ? 'osm_single'
-    : 'manual';
+  return Object.keys(TECHNICAL_WAYPOINT_NAMES).find(source => {
+    const [startName, endName] = TECHNICAL_WAYPOINT_NAMES[source];
+    return savedWaypoints[0]?.name === startName && savedWaypoints[1]?.name === endName;
+  }) || 'manual';
 }
 
 function slopeColor(slope, alpha = 0.85) {
@@ -1409,7 +1579,7 @@ async function loadExistingRoute(route) {
 
     const savedWaypoints = (route.waypoints || []).length
       ? route.waypoints
-      : technicalWaypointsFromGeometry(route.geometry);
+      : technicalWaypointsFromGeometry(route.geometry, TECHNICAL_WAYPOINT_NAMES.osm_single);
     for (const wp of savedWaypoints) {
       await addWaypoint(wp.lat, wp.lng, wp.name, { skipRouteCalc: true });
     }
@@ -1431,6 +1601,9 @@ function bindControls() {
   const searchInput = document.getElementById('search-input');
   document.getElementById('search-btn')?.addEventListener('click', () => search(searchInput.value));
   searchInput?.addEventListener('keydown', e => { if (e.key === 'Enter') search(searchInput.value); });
+  const gpxInput = document.getElementById('gpx-file');
+  document.getElementById('btn-import-gpx')?.addEventListener('click', () => gpxInput?.click());
+  gpxInput?.addEventListener('change', () => importGpxFile(gpxInput.files?.[0]));
   document.addEventListener('click', e => {
     if (!e.target.closest('#search-input') && !e.target.closest('#search-results'))
       document.getElementById('search-results').style.display = 'none';

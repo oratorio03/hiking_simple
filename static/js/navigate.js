@@ -41,7 +41,7 @@ function initNavMap() {
     L.circleMarker([wp.lat, wp.lng], {
       radius: 9, fillColor: color, color: '#fff', weight: 3, fillOpacity: 1
     }).addTo(navMap)
-      .bindPopup(`<b>${wp.name || 'Punto ' + (i + 1)}</b>`);
+      .bindPopup(`<b>${escapeHtml(wp.name || 'Punto ' + (i + 1))}</b>`);
   });
 
   if (!routeMetrics && !waypoints.length) navMap.setView([45.8, 10.0], 9);
@@ -250,4 +250,10 @@ function haversine(lat1, lon1, lat2, lon2) {
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
 }

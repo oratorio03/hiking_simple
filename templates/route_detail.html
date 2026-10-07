@@ -145,6 +145,9 @@
     <a href="{{ url_for('map_view', route_id=route.id) }}" class="btn btn-outline-secondary" title="Modifica">
       <i class="bi bi-pencil"></i>
     </a>
+    <a href="{{ url_for('export_gpx', route_id=route.id) }}" class="btn btn-outline-secondary" title="Esporta GPX">
+      <i class="bi bi-download"></i>
+    </a>
     <form method="POST" action="{{ url_for('delete_route', route_id=route.id) }}"
           onsubmit="return confirm('Eliminare questo percorso?')">
       <button type="submit" class="btn btn-outline-danger" title="Elimina"><i class="bi bi-trash"></i></button>
@@ -231,6 +234,9 @@
 
   const waypoints = ROUTE.waypoints || [];
   const geometry  = ROUTE.geometry;
+  const escapeHtml = str => String(str).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+  );
 
   if (geometry) {
     const layer = L.geoJSON(geometry, {
@@ -244,7 +250,7 @@
     const color = isStart ? '#198754' : isEnd ? '#dc3545' : '#0d6efd';
     L.circleMarker([wp.lat, wp.lng], {
       radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 1
-    }).addTo(map).bindPopup(`<b>${wp.name || 'Punto ' + (i+1)}</b>`);
+    }).addTo(map).bindPopup(`<b>${escapeHtml(wp.name || 'Punto ' + (i+1))}</b>`);
   });
 
   if (!geometry && !waypoints.length) map.setView([45.8, 10.0], 9);

@@ -68,10 +68,14 @@
           <i class="bi bi-trash"></i>
         </button>
       </div>
-      <div class="px-3 pb-2 bg-light">
-        <button id="btn-osm-trails" class="btn btn-sm btn-outline-success w-100" onclick="toggleOsmTrails()">
+      <div class="px-3 pb-2 bg-light d-flex gap-2">
+        <button id="btn-osm-trails" class="btn btn-sm btn-outline-success flex-fill" onclick="toggleOsmTrails()">
           <i class="bi bi-signpost-2 me-1"></i>Mostra sentieri OSM visibili
         </button>
+        <button id="btn-import-gpx" type="button" class="btn btn-sm btn-outline-primary flex-fill text-nowrap">
+          <i class="bi bi-upload me-1"></i>Importa GPX
+        </button>
+        <input type="file" id="gpx-file" accept=".gpx,application/gpx+xml,application/xml,text/xml" hidden>
       </div>
 
       <!-- Status message -->

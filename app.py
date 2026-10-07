@@ -1,10 +1,14 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
+from flask import Flask, Response, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from datetime import datetime
 from functools import wraps
 import json
+import math
 import os
+import re
+import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
 secret_key = os.environ.get('SECRET_KEY')
@@ -433,6 +437,111 @@ def current_user():
     return db.session.get(User, uid) if uid else None
 
 
+GPX_NS = 'http://www.topografix.com/GPX/1/1'
+_XML_INVALID_CHARS = re.compile('[^\t\n\r\x20-퟿-�\U00010000-\U0010ffff]')
+
+
+def _finite_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _valid_lat_lon(lat, lon):
+    lat, lon = _finite_float(lat), _finite_float(lon)
+    if lat is None or lon is None or abs(lat) > 90 or abs(lon) > 180:
+        return None
+    return lat, lon
+
+
+def _gpx_degrees(value):
+    text = f'{value:.7f}'.rstrip('0').rstrip('.')
+    return '0' if text == '-0' else text
+
+
+def _gpx_text(parent, tag, text):
+    el = ET.SubElement(parent, tag)
+    el.text = _XML_INVALID_CHARS.sub('', str(text))
+    return el
+
+
+def _gpx_point(parent, tag, lat, lon):
+    return ET.SubElement(parent, tag, lat=_gpx_degrees(lat), lon=_gpx_degrees(lon))
+
+
+def _route_track_points(route):
+    try:
+        geometry = json.loads(route.geometry_json) if route.geometry_json else None
+    except ValueError:
+        return []
+    if not isinstance(geometry, dict) or geometry.get('type') != 'LineString':
+        return []
+    coords = geometry.get('coordinates')
+    if not isinstance(coords, list):
+        return []
+    points = []
+    for coord in coords:
+        if not isinstance(coord, list) or len(coord) < 2:
+            continue
+        lat_lon = _valid_lat_lon(coord[1], coord[0])
+        if lat_lon:
+            ele = _finite_float(coord[2]) if len(coord) > 2 else None
+            points.append((*lat_lon, ele))
+    return points if len(points) >= 2 else []
+
+
+def _route_waypoint_points(route):
+    waypoints = route.waypoints
+    if not isinstance(waypoints, list):
+        return []
+    points = []
+    for wp in waypoints:
+        if not isinstance(wp, dict):
+            continue
+        lat_lon = _valid_lat_lon(wp.get('lat'), wp.get('lng'))
+        if lat_lon:
+            points.append((*lat_lon, wp.get('name')))
+    return points
+
+
+def build_route_gpx(route):
+    root = ET.Element('gpx', {'version': '1.1', 'creator': 'HikePath', 'xmlns': GPX_NS})
+    metadata = ET.SubElement(root, 'metadata')
+    _gpx_text(metadata, 'name', route.name)
+    if route.description:
+        _gpx_text(metadata, 'desc', route.description)
+    if route.created_at:
+        _gpx_text(metadata, 'time', route.created_at.strftime('%Y-%m-%dT%H:%M:%SZ'))
+
+    waypoints = _route_waypoint_points(route)
+    for lat, lon, name in waypoints:
+        wpt = _gpx_point(root, 'wpt', lat, lon)
+        if name:
+            _gpx_text(wpt, 'name', name)
+
+    track = _route_track_points(route)
+    if track:
+        trk = ET.SubElement(root, 'trk')
+        _gpx_text(trk, 'name', route.name)
+        trkseg = ET.SubElement(trk, 'trkseg')
+        for lat, lon, ele in track:
+            trkpt = _gpx_point(trkseg, 'trkpt', lat, lon)
+            if ele is not None:
+                _gpx_text(trkpt, 'ele', f'{ele:.1f}')
+    elif waypoints:
+        rte = ET.SubElement(root, 'rte')
+        _gpx_text(rte, 'name', route.name)
+        for lat, lon, name in waypoints:
+            rtept = _gpx_point(rte, 'rtept', lat, lon)
+            if name:
+                _gpx_text(rtept, 'name', name)
+
+    ET.indent(root)
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+
+
 @app.context_processor
 def inject_user():
     return {
@@ -693,6 +802,16 @@ def delete_route(route_id):
     db.session.commit()
     flash('Percorso eliminato.', 'success')
     return redirect(url_for('routes_list'))
+
+
+@app.route('/routes/<int:route_id>/gpx')
+@login_required
+def export_gpx(route_id):
+    route = Route.query.filter_by(id=route_id, user_id=current_user().id).first_or_404()
+    filename = (secure_filename(route.name) or f'percorso-{route.id}') + '.gpx'
+    response = Response(build_route_gpx(route), mimetype='application/gpx+xml')
+    response.headers.set('Content-Disposition', 'attachment', filename=filename)
+    return response
 
 
 @app.route('/static/sw.js')
