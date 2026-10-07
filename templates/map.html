@@ -237,7 +237,7 @@
           </div>
         </div>
 
-        <!-- Ferrata grade (shown only for EEA) -->
+        <!-- Ferrata grade (shown only for EEA or the "Via ferrata" hazard) -->
         <div id="ferrata-row" class="mb-2 d-none">
           <label class="form-label form-label-sm mb-1 fw-semibold small">Grado ferrata</label>
           <select id="route-ferrata-grade" class="form-select form-select-sm">
@@ -317,11 +317,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/map.js') }}"></script>
 <script>
-// Show/hide ferrata grade
-document.getElementById('route-trail-type').addEventListener('change', function() {
-  document.getElementById('ferrata-row').classList.toggle('d-none', this.value !== 'EEA');
-});
-
 // Chart tab toggle
 function showTab(tab) {
   document.getElementById('chart-elev').style.display = tab === 'elev' ? '' : 'none';

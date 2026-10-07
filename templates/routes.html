@@ -52,6 +52,14 @@
       </span>
       {% endfor %}
     </div>
+    {% if cat.forbidden_hazard_meta %}
+    <div class="rules-hazards">
+      <span class="rules-hazards-label">Esclusi se segnalati:</span>
+      {% for key, icon, color, label in cat.forbidden_hazard_meta %}
+      <span class="hazard-pill hazard-pill-sm text-{{ color }}"><i class="bi {{ icon }} me-1"></i>{{ label }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
     <p class="text-muted small mb-0 mt-2">
       Mostro solo i percorsi che soddisfano queste condizioni.
       {% if not routes %}Nessun percorso corrisponde ai criteri.{% endif %}

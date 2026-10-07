@@ -1808,7 +1808,7 @@ document.getElementById('save-form')?.addEventListener('submit', async e => {
     trail_type:         document.getElementById('route-trail-type').value,
     route_type_tag:     document.getElementById('route-type-tag').value,
     surface:            document.getElementById('route-surface').value,
-    ferrata_grade:      document.getElementById('route-ferrata-grade')?.value || null,
+    ferrata_grade:      isFerrataSelected() ? document.getElementById('route-ferrata-grade')?.value || null : null,
     hazards,
     distance_km:        routeStats.distance,
     duration_min:       routeStats.duration,
@@ -1886,14 +1886,12 @@ async function loadExistingRoute(route) {
   document.getElementById('route-trail-type').value = route.trail_type || 'E';
   document.getElementById('route-type-tag').value   = route.route_type_tag || 'punto_punto';
   document.getElementById('route-surface').value    = route.surface || 'sentiero';
-  if (route.ferrata_grade) {
-    document.getElementById('route-ferrata-grade').value = route.ferrata_grade;
-    document.getElementById('ferrata-row').classList.remove('d-none');
-  }
   (route.hazards || []).forEach(h => {
     const cb = document.querySelector(`.hazard-cb[value="${h}"]`);
     if (cb) cb.checked = true;
   });
+  document.getElementById('route-ferrata-grade').value = route.ferrata_grade || '';
+  syncFerrataRow();
   loadSavedRouteStats(route);
 
   if (isValidRouteGeometry(route.geometry)) {
@@ -1933,9 +1931,25 @@ function bindControls() {
   gpxInput?.addEventListener('change', () => importGpxFile(gpxInput.files?.[0]));
   document.getElementById('btn-my-routes')?.addEventListener('click', toggleMyRoutes);
   document.getElementById('nearby-close')?.addEventListener('click', closeNearbyRoutes);
+  document.getElementById('route-trail-type')?.addEventListener('change', syncFerrataRow);
+  document.querySelector('.hazard-cb[value="ferrata"]')?.addEventListener('change', syncFerrataRow);
   document.addEventListener('click', e => {
     if (!e.target.closest('#search-input') && !e.target.closest('#search-results')) closeSearchResults();
   });
+}
+
+function isFerrataSelected() {
+  return document.getElementById('route-trail-type')?.value === 'EEA' ||
+    !!document.querySelector('.hazard-cb[value="ferrata"]')?.checked;
+}
+
+function syncFerrataRow() {
+  const row = document.getElementById('ferrata-row');
+  const grade = document.getElementById('route-ferrata-grade');
+  if (!row || !grade) return;
+  const show = isFerrataSelected();
+  row.classList.toggle('d-none', !show);
+  if (!show) grade.value = '';
 }
 
 // ── Spinner & status ──────────────────────────────────────────────────────
