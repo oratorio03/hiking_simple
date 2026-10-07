@@ -161,7 +161,7 @@ CATEGORY_RULES = {
         'icon':  'bi-people-fill',
         'color': 'success',
         'desc':  'Per famiglie con bambini e principianti: percorsi T o E di livello facile o medio, '
-                 'pendenza max 10%, fondo stabile, senza ostacoli, neve o guadi',
+                 'pendenza max 10%, senza ostacoli, neve o guadi',
         'max_avg_slope':        10,
         'max_slope_asc':        10,
         'max_slope_desc':       10,
@@ -222,7 +222,7 @@ CATEGORY_RULES = {
         'icon':  'bi-activity',
         'color': 'warning',
         'desc':  'Percorsi fino a EE, EEA, F e PD con pendenza max 30%; '
-                 'ferrate solo fino al grado PD, nessun grado alpino AD o superiore',
+                 'ferrate solo con grado indicato fino a PD, nessun grado alpino AD o superiore',
         'max_avg_slope':        30,
         'max_slope_asc':        30,
         'max_slope_desc':       30,
@@ -304,7 +304,7 @@ def describe_category(rules):
     if not rules['allow_ferrata']:
         add('ferrata', 'Nessuna ferrata', 'x-circle', 'danger')
     elif rules['max_ferrata_grade']:
-        add('ferrata', f"Ferrate fino al grado {rules['max_ferrata_grade']} (grado indicato)")
+        add('ferrata', f"Ferrate solo con grado indicato, fino a {rules['max_ferrata_grade']}")
     lines += [('check-circle', 'warning', note) for note in rules['notes']]
     return {
         'rule_text': rule_text,
@@ -413,7 +413,7 @@ class Route(db.Model):
 
     @property
     def difficulty_label(self):
-        return DIFFICULTY_LABELS.get(self.difficulty, 'Medio')
+        return DIFFICULTY_LABELS.get(self.difficulty, 'Non indicato')
 
     @property
     def difficulty_color(self):
@@ -421,7 +421,7 @@ class Route(db.Model):
 
     @property
     def trail_type_label(self):
-        return TRAIL_TYPE_LABELS.get(self.trail_type, self.trail_type or 'E')
+        return TRAIL_TYPE_LABELS.get(self.trail_type, self.trail_type or 'Scala CAI non indicata')
 
     @property
     def route_type_label(self):

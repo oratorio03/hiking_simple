@@ -56,7 +56,7 @@
     <div class="rules-hazards">
       <span class="rules-hazards-label">Esclusi se segnalati:</span>
       {% for key, icon, color, label in cat.forbidden_hazard_meta %}
-      <span class="hazard-pill hazard-pill-sm text-{{ color }}"><i class="bi {{ icon }} me-1"></i>{{ label }}</span>
+      <span class="hazard-pill hazard-pill-sm border-{{ color }}"><i class="bi {{ icon }} text-{{ color }} me-1"></i>{{ label }}</span>
       {% endfor %}
     </div>
     {% endif %}
@@ -80,7 +80,7 @@
         </div>
         <!-- Trail type + hazard icons -->
         <div class="d-flex flex-wrap gap-1 mb-1">
-          <span class="badge badge-trail-sm">{{ route.trail_type or 'E' }}</span>
+          <span class="badge badge-trail-sm">{{ route.trail_type or '—' }}</span>
           <span class="badge bg-light text-muted border" style="font-size:.65rem">{{ route.route_type_label }}</span>
           {% for key, (icon, color, label) in route.hazard_meta %}
           <span class="text-{{ color }}" title="{{ label }}" style="font-size:.8rem">

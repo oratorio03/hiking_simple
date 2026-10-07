@@ -1890,7 +1890,7 @@ async function loadExistingRoute(route) {
     const cb = document.querySelector(`.hazard-cb[value="${h}"]`);
     if (cb) cb.checked = true;
   });
-  document.getElementById('route-ferrata-grade').value = route.ferrata_grade || '';
+  document.getElementById('route-ferrata-grade').value = isFerrataSelected() ? route.ferrata_grade || '' : '';
   syncFerrataRow();
   loadSavedRouteStats(route);
 
@@ -1944,12 +1944,7 @@ function isFerrataSelected() {
 }
 
 function syncFerrataRow() {
-  const row = document.getElementById('ferrata-row');
-  const grade = document.getElementById('route-ferrata-grade');
-  if (!row || !grade) return;
-  const show = isFerrataSelected();
-  row.classList.toggle('d-none', !show);
-  if (!show) grade.value = '';
+  document.getElementById('ferrata-row')?.classList.toggle('d-none', !isFerrataSelected());
 }
 
 // ── Spinner & status ──────────────────────────────────────────────────────
