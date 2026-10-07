@@ -3,12 +3,22 @@
 {% block content %}
 <div class="page-content">
 
-  <div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
     <h5 class="fw-bold mb-0">I miei percorsi</h5>
     <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">
       <i class="bi bi-plus-lg me-1"></i>Nuovo
     </a>
   </div>
+
+  {% if routes %}
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <button type="button" id="btn-sort-near" class="btn btn-sm rounded-pill btn-outline-success flex-shrink-0"
+            aria-pressed="false">
+      <i class="bi bi-crosshair me-1"></i><span class="btn-label">Vicino a me</span>
+    </button>
+    <span id="near-msg" class="text-muted small" role="status" hidden>Posizione non disponibile</span>
+  </div>
+  {% endif %}
 
   <!-- Category filter -->
   <div class="d-flex gap-2 mb-2 overflow-auto pb-1">
@@ -52,7 +62,9 @@
   {% if routes %}
   <div class="route-list">
     {% for route in routes %}
-    <div class="route-card" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'">
+    {% set start = route.start_point %}
+    <div class="route-card" onclick="window.location='{{ url_for('route_detail', route_id=route.id) }}'"
+         {%- if start %} data-start-lat="{{ start.lat }}" data-start-lng="{{ start.lng }}"{% endif %}>
       <div class="route-card-body">
         <div class="d-flex align-items-start justify-content-between mb-1">
           <div class="route-name">{{ route.name }}</div>
@@ -107,4 +119,8 @@
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/distance.js') }}"></script>
 {% endblock %}

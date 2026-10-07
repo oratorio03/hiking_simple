@@ -5,6 +5,7 @@ let isNavigating = false;
 let currentPos = null;
 const route = window.NAV_ROUTE;
 let routeMetrics = null;
+let waypointMetrics = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavMap();
@@ -45,6 +46,12 @@ function initNavMap() {
   });
 
   if (!routeMetrics && !waypoints.length) navMap.setView([45.8, 10.0], 9);
+  if (!routeMetrics && waypoints.length) {
+    navMap.fitBounds(L.latLngBounds(waypoints.map(wp => [wp.lat, wp.lng])), { padding: [30, 30], maxZoom: 16 });
+    if (waypoints.length >= 2) {
+      waypointMetrics = buildRouteMetrics({ coordinates: waypoints.map(wp => [wp.lng, wp.lat]) });
+    }
+  }
 }
 
 function toggleNavigation() {
@@ -78,6 +85,7 @@ function stopNavigation() {
   btn.innerHTML = '<i class="bi bi-compass-fill me-1"></i>Avvia navigazione GPS';
   btn.classList.replace('btn-danger', 'btn-success');
   document.getElementById('btn-center').disabled = true;
+  setOffRouteBanner(null);
 }
 
 function onPosition(pos) {
@@ -112,6 +120,37 @@ function onPosition(pos) {
   }
 
   updateHUD(lat, lng, accuracy, speed);
+  updateOffRoute(lat, lng, accuracy);
+}
+
+function updateOffRoute(lat, lng, accuracy) {
+  const thresholdM = Math.max(40, accuracy || 0);
+  const waypoints = route.waypoints || [];
+  let text = null;
+
+  if (routeMetrics) {
+    const { distanceM, progressM } = getRouteProgress(lat, lng, routeMetrics);
+    if (distanceM > thresholdM) {
+      const dist = formatDistance(distanceM / 1000);
+      text = progressM < 30 ? `Inizio sentiero a ${dist}` : `Sei a ${dist} dal sentiero`;
+    }
+  } else if (waypoints.length) {
+    const first = waypoints[0];
+    const distanceM = haversine(lat, lng, first.lat, first.lng) * 1000;
+    // Without a track, only warn while the user is still before the first waypoint.
+    const beforeStart = !waypointMetrics || getRouteProgress(lat, lng, waypointMetrics).progressM < 30;
+    if (distanceM > thresholdM && beforeStart) {
+      text = `Inizio sentiero a ${formatDistance(distanceM / 1000)}`;
+    }
+  }
+
+  setOffRouteBanner(text);
+}
+
+function setOffRouteBanner(text) {
+  const banner = document.getElementById('nav-offroute');
+  document.getElementById('nav-offroute-text').textContent = text || '';
+  banner.hidden = !text;
 }
 
 function updateHUD(lat, lng, accuracy, speed) {

@@ -82,6 +82,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   font-size: .75rem; color: #6c757d; align-items: center;
 }
 .route-meta i { margin-right: 2px; }
+.near-badge { font-size: inherit; font-weight: 600; }
 
 /* ── Difficulty badges ─────────────────────────────────────────────── */
 .diff-badge {

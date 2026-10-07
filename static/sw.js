@@ -1,9 +1,10 @@
-const CACHE = 'hikepath-v12';
+const CACHE = 'hikepath-v13';
 const PRECACHE = [
   '/static/css/style.css',
   '/static/js/app.js',
   '/static/js/map.js',
   '/static/js/navigate.js',
+  '/static/js/distance.js',
   '/static/manifest.json',
   '/static/icons/icon-192.png',
 ];

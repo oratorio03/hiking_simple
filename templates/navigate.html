@@ -15,12 +15,24 @@
   .hud-val { font-size:1.4rem; font-weight:700; line-height:1; }
   .hud-label { font-size:.65rem; color:#aaa; margin-top:2px; }
   .nav-btn-row { display:flex; gap:8px; padding: 8px 12px; background:#f8f9fa; border-top:1px solid #dee2e6; }
+  .nav-map-wrap { position: relative; }
+  .nav-offroute {
+    position: absolute; top: 10px; left: 54px; right: 10px; z-index: 1000;
+    background: #fff3cd; color: #664d03; border: 1px solid #ffda6a;
+    border-radius: 10px; padding: 8px 12px; font-size: .9rem; font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); pointer-events: none;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<div id="nav-map"></div>
+<div class="nav-map-wrap">
+  <div id="nav-map"></div>
+  <div id="nav-offroute" class="nav-offroute" role="status" aria-live="polite" hidden>
+    <i class="bi bi-exclamation-triangle-fill me-1"></i><span id="nav-offroute-text"></span>
+  </div>
+</div>
 
 <!-- Navigation HUD -->
 <div class="nav-hud">
