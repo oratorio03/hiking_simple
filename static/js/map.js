@@ -11,6 +11,8 @@ const OSM_RELIABLE_SLOPE_SEGMENT_M = 100;
 const VISUAL_SLOPE_CLAMP_PCT = 50;
 const GPX_MAX_FILE_BYTES = 15 * 1024 * 1024;
 const GPX_MAX_POINTS = 5000;
+const SAVED_ROUTE_COLOR = '#6f42c1';
+const NEARBY_RADIUS_KM = 25;
 const TECHNICAL_WAYPOINT_NAMES = {
   osm_single: ['Inizio sentiero OSM', 'Fine sentiero OSM'],
   gpx: ['Inizio traccia GPX', 'Fine traccia GPX']
@@ -25,6 +27,12 @@ let osmTrailsVisible = false;
 let selectedOsmTrail = null;
 let routeSource = 'manual'; // 'manual' | 'osm_single' | 'osm_composed' | 'gpx'
 let routeAnalysisId = 0;
+let savedRouteLayer = null;
+let placeMarker = null;
+let myRoutesLayer = null;
+let myRoutesVisible = false;
+let searchRequestId = 0;
+let nearbyRequestId = 0;
 let routeProfile  = 'hiking';   // 'hiking' | 'trekking' | 'safety'
 let routeStats    = {
   distance: 0, duration: 0,
@@ -61,10 +69,14 @@ function initMap() {
     {}, { position: 'topright', collapsed: true }
   ).addTo(map);
 
-  navigator.geolocation?.getCurrentPosition(
-    p => map.setView([p.coords.latitude, p.coords.longitude], 13),
-    () => map.setView([45.8, 10.0], 9)
-  );
+  map.setView([45.8, 10.0], 9);
+  savedRouteLayer = L.layerGroup().addTo(map);
+  navigator.geolocation?.getCurrentPosition(p => {
+    // A late fix must not pull the map away from what the user is already looking at.
+    if (routeGeometry === null && !waypoints.length && !placeMarker && !savedRouteLayer.getLayers().length) {
+      map.setView([p.coords.latitude, p.coords.longitude], 13);
+    }
+  }, null, { timeout: 10000, maximumAge: 300000 });
 
   map.on('click', handleMapClick);
 }
@@ -1419,35 +1431,267 @@ function updateBtnState() {
 
 // ── Search ────────────────────────────────────────────────────────────────
 
+// Explicit submit only: Nominatim's usage policy forbids search-as-you-type.
 async function search(query) {
-  if (!query.trim()) return;
-  try {
-    const res = await fetch(
-      `${NOMIN}/search?q=${encodeURIComponent(query)}&format=json&limit=6&accept-language=it`,
-      { headers: { 'User-Agent': 'HikePath/1.0' } }
-    );
-    showSearchResults(await res.json());
-  } catch (err) { console.error('Search error', err); }
+  query = query.trim();
+  if (!query) return;
+  const requestId = ++searchRequestId;
+  const [routes, places] = await Promise.allSettled([
+    fetchOwnRoutes({ q: query, limit: 10 }),
+    searchPlaces(query)
+  ]);
+  if (requestId !== searchRequestId) return;
+  if (routes.status === 'rejected') console.warn('Own route search failed', routes.reason);
+  if (places.status === 'rejected') console.warn('Place search failed', places.reason);
+  showSearchResults({
+    routes: routes.value || [],
+    places: places.value || [],
+    routesFailed: routes.status === 'rejected',
+    placesFailed: places.status === 'rejected'
+  });
 }
 
-function showSearchResults(results) {
+async function fetchOwnRoutes(params) {
+  const res = await fetchWithTimeout(`/api/routes/search?${new URLSearchParams(params)}`, {}, 10000);
+  if (!res.ok) throw new Error(`Route search HTTP ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+async function searchPlaces(query) {
+  const res = await fetchWithTimeout(
+    `${NOMIN}/search?q=${encodeURIComponent(query)}&format=json&limit=6&accept-language=it`,
+    { headers: { 'User-Agent': 'HikePath/1.0' } },
+    10000
+  );
+  if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error('Nominatim: unexpected response');
+  return data.map(r => {
+    const parts = String(r.display_name || '').split(',').map(s => s.trim()).filter(Boolean);
+    return {
+      lat: parseFloat(r.lat),
+      lon: parseFloat(r.lon),
+      name: parts[0] || query,
+      label: parts.slice(0, 2).join(', ') || query
+    };
+  }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+}
+
+function showSearchResults({ routes, places, routesFailed, placesFailed }) {
   const box = document.getElementById('search-results');
-  if (!results.length) { box.style.display = 'none'; return; }
-  box.innerHTML = results.map(r => {
-    const name = r.display_name.split(',').slice(0, 2).join(', ');
-    return `<button class="list-group-item list-group-item-action text-start small py-2"
-      onclick="selectResult(${r.lat},${r.lon},'${escapeHtml(r.display_name.split(',')[0])}')">
-      <i class="bi bi-geo-alt-fill text-success me-1"></i>${escapeHtml(name)}
-    </button>`;
-  }).join('');
+  box.replaceChildren();
+  if (routes.length) {
+    box.appendChild(searchGroupHeader('bi-signpost-split saved-route-icon', 'I tuoi percorsi'));
+    routes.forEach(route => box.appendChild(searchResultButton(route.name, savedRouteSummary(route), () => {
+      closeSearchResults();
+      showSavedRouteOnMap(route);
+    })));
+  }
+  if (places.length) {
+    box.appendChild(searchGroupHeader('bi-geo-alt-fill text-success', 'Luoghi'));
+    places.forEach(place => box.appendChild(searchResultButton(place.label, '', () => selectPlace(place))));
+  }
+  if (!routes.length && !places.length) box.appendChild(createEl('div', 'list-group-item small', 'Nessun risultato'));
+  if (routesFailed) box.appendChild(createEl('div', 'list-group-item small text-muted', 'Ricerca nei tuoi percorsi non riuscita.'));
+  if (placesFailed) box.appendChild(createEl('div', 'list-group-item small text-muted', 'Ricerca luoghi non disponibile, riprova più tardi.'));
   box.style.display = 'block';
 }
 
-function selectResult(lat, lon, name) {
+function searchGroupHeader(iconClass, text) {
+  const header = createEl('div', 'list-group-item bg-light text-muted small fw-semibold py-1');
+  header.append(createEl('i', `bi ${iconClass} me-1`), text);
+  return header;
+}
+
+function searchResultButton(title, subtitle, onSelect) {
+  const btn = createEl('button', 'list-group-item list-group-item-action text-start small py-2');
+  btn.type = 'button';
+  btn.appendChild(createEl('div', 'text-truncate', title));
+  if (subtitle) btn.appendChild(createEl('div', 'text-muted', subtitle));
+  btn.addEventListener('click', onSelect);
+  return btn;
+}
+
+function closeSearchResults() {
   document.getElementById('search-results').style.display = 'none';
-  document.getElementById('search-input').value = name;
-  map.setView([parseFloat(lat), parseFloat(lon)], 14);
-  addWaypoint(parseFloat(lat), parseFloat(lon), name);
+}
+
+function selectPlace(place) {
+  closeSearchResults();
+  document.getElementById('search-input').value = place.name;
+  map.setView([place.lat, place.lon], 14);
+  showPlaceMarker(place);
+  loadNearbyRoutes(place);
+}
+
+function showPlaceMarker(place) {
+  clearPlaceMarker();
+  const icon = L.divIcon({
+    html: '<i class="bi bi-geo-alt-fill"></i>',
+    className: 'place-marker', iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -28]
+  });
+  placeMarker = L.marker([place.lat, place.lon], { icon, zIndexOffset: 500 })
+    .bindPopup(() => placePopupContent(place))
+    .addTo(map)
+    .openPopup();
+}
+
+function clearPlaceMarker() {
+  if (!placeMarker) return;
+  map.removeLayer(placeMarker);
+  placeMarker = null;
+}
+
+function placePopupContent(place) {
+  const box = document.createElement('div');
+  box.appendChild(createEl('strong', '', place.name));
+  if (routeSource !== 'manual') return box;
+  const btn = createEl('button', 'btn btn-sm btn-success w-100 mt-2');
+  btn.type = 'button';
+  btn.append(createEl('i', 'bi bi-plus-circle me-1'), 'Aggiungi come tappa');
+  btn.addEventListener('click', () => {
+    if (routeSource !== 'manual') return;
+    clearPlaceMarker();
+    addWaypoint(place.lat, place.lon, place.name);
+  });
+  box.appendChild(btn);
+  return box;
+}
+
+async function loadNearbyRoutes(place) {
+  const requestId = ++nearbyRequestId;
+  showNearbyRoutes(place, [nearbyNote('Cerco i tuoi percorsi vicini…')]);
+  try {
+    const routes = await fetchOwnRoutes({ lat: place.lat, lng: place.lon, radius_km: NEARBY_RADIUS_KM });
+    if (requestId !== nearbyRequestId) return;
+    showNearbyRoutes(place, routes.length
+      ? routes.map(nearbyRouteButton)
+      : [nearbyNote(`Nessun tuo percorso entro ${NEARBY_RADIUS_KM} km`)]);
+  } catch (err) {
+    if (requestId !== nearbyRequestId) return;
+    console.warn('Nearby route search failed', err);
+    showNearbyRoutes(place, [nearbyNote('Impossibile cercare i tuoi percorsi vicini.')]);
+  }
+}
+
+function showNearbyRoutes(place, items) {
+  document.getElementById('nearby-title').textContent = `Percorsi vicini a ${place.name}`;
+  document.getElementById('nearby-list').replaceChildren(...items);
+  document.getElementById('nearby-routes').classList.remove('d-none');
+}
+
+function closeNearbyRoutes() {
+  nearbyRequestId += 1;
+  document.getElementById('nearby-routes').classList.add('d-none');
+  document.getElementById('nearby-list').replaceChildren();
+}
+
+function nearbyNote(text) {
+  return createEl('div', 'small text-muted py-1', text);
+}
+
+function nearbyRouteButton(route) {
+  const btn = createEl('button', 'list-group-item list-group-item-action d-flex align-items-center gap-2 small px-2 py-1');
+  btn.type = 'button';
+  btn.append(
+    createEl('span', 'text-truncate flex-grow-1', route.name),
+    createEl('span', 'text-muted text-nowrap', formatDistanceFrom(route.distance_from_point_km))
+  );
+  btn.addEventListener('click', () => showSavedRouteOnMap(route));
+  return btn;
+}
+
+function formatDistanceFrom(km) {
+  if (!Number.isFinite(km)) return '';
+  const meters = Math.round(km * 1000);
+  return meters < 1000 ? `a ${meters} m` : `a ${km.toFixed(1)} km`;
+}
+
+// ── Saved routes on the map ───────────────────────────────────────────────
+
+function savedRouteSummary(route) {
+  const km = (Number(route.distance_km) || 0).toFixed(1);
+  return `${km} km · +${Math.round(Number(route.elevation_gain_m) || 0)} m`;
+}
+
+function savedRoutePopup(route) {
+  return `
+    <div>
+      <strong>${escapeHtml(route.name)}</strong>
+      <div class="small text-muted">${escapeHtml(savedRouteSummary(route))}</div>
+      <div class="d-flex gap-3 mt-2 small">
+        <a href="${escapeHtml(route.url)}"><i class="bi bi-file-text me-1"></i>Apri scheda</a>
+        <a href="${escapeHtml(route.edit_url)}"><i class="bi bi-pencil me-1"></i>Modifica</a>
+      </div>
+    </div>`;
+}
+
+// Saved routes never bubble clicks to the map, so they can't add waypoints to the route being edited.
+function savedRouteMapLayer(route, style) {
+  const coords = route.geometry?.coordinates;
+  const options = { color: SAVED_ROUTE_COLOR, bubblingMouseEvents: false, ...style };
+  let layer;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    layer = L.polyline(coords.map(([lng, lat]) => [lat, lng]), { lineCap: 'round', lineJoin: 'round', ...options });
+  } else if (route.start) {
+    layer = L.circleMarker([route.start.lat, route.start.lng], { radius: 7, fillOpacity: 0.5, ...options });
+  } else {
+    return null;
+  }
+  return layer.bindPopup(savedRoutePopup(route));
+}
+
+function showSavedRouteOnMap(route) {
+  const layer = savedRouteMapLayer(route, { weight: 5, opacity: 0.9 });
+  if (!layer) return;
+  savedRouteLayer.clearLayers();
+  savedRouteLayer.addLayer(layer);
+  if (layer.getBounds) map.fitBounds(layer.getBounds(), { padding: [30, 30], maxZoom: 16 });
+  else map.setView(layer.getLatLng(), 14);
+  layer.openPopup();
+}
+
+async function toggleMyRoutes() {
+  const btn = document.getElementById('btn-my-routes');
+  if (myRoutesVisible) {
+    map.removeLayer(myRoutesLayer);
+    myRoutesVisible = false;
+    updateMyRoutesButton();
+    return;
+  }
+
+  if (!myRoutesLayer) {
+    btn.disabled = true;
+    btn.replaceChildren(createEl('span', 'spinner-border spinner-border-sm me-1'), 'Carico i tuoi percorsi…');
+    try {
+      const editId = window.PRELOAD_ROUTE?.id;
+      const routes = (await fetchOwnRoutes({ limit: 50 })).filter(r => r.id !== editId);
+      myRoutesLayer = L.layerGroup(routes
+        .map(r => savedRouteMapLayer(r, { weight: 3, opacity: 0.7 })?.bindTooltip(escapeHtml(r.name), { sticky: true }))
+        .filter(Boolean));
+    } catch (err) {
+      console.warn('Own routes overlay failed', err);
+      setStatus('Impossibile caricare i tuoi percorsi. Riprova tra poco.', 'warning');
+    }
+    btn.disabled = false;
+    if (!myRoutesLayer) { updateMyRoutesButton(); return; }
+  }
+
+  myRoutesLayer.addTo(map);
+  myRoutesVisible = true;
+  updateMyRoutesButton();
+}
+
+function updateMyRoutesButton() {
+  const btn = document.getElementById('btn-my-routes');
+  if (!btn) return;
+  btn.className = `btn btn-sm ${myRoutesVisible ? 'btn-primary' : 'btn-outline-primary'} flex-fill`;
+  btn.setAttribute('aria-pressed', String(myRoutesVisible));
+  btn.replaceChildren(
+    createEl('i', 'bi bi-collection me-1'),
+    myRoutesVisible ? `Nascondi i miei percorsi (${myRoutesLayer.getLayers().length})` : 'I miei percorsi'
+  );
 }
 
 async function reverseGeocode(lat, lng) {
@@ -1604,9 +1848,10 @@ function bindControls() {
   const gpxInput = document.getElementById('gpx-file');
   document.getElementById('btn-import-gpx')?.addEventListener('click', () => gpxInput?.click());
   gpxInput?.addEventListener('change', () => importGpxFile(gpxInput.files?.[0]));
+  document.getElementById('btn-my-routes')?.addEventListener('click', toggleMyRoutes);
+  document.getElementById('nearby-close')?.addEventListener('click', closeNearbyRoutes);
   document.addEventListener('click', e => {
-    if (!e.target.closest('#search-input') && !e.target.closest('#search-results'))
-      document.getElementById('search-results').style.display = 'none';
+    if (!e.target.closest('#search-input') && !e.target.closest('#search-results')) closeSearchResults();
   });
 }
 
@@ -1644,6 +1889,13 @@ function fetchWithTimeout(url, options = {}, timeout = 8000) {
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────
+
+function createEl(tag, className = '', text = '') {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text) el.textContent = text;
+  return el;
+}
 
 function escapeHtml(str) {
   if (!str) return '';

@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
@@ -361,6 +362,10 @@ class Route(db.Model):
     def hazard_meta(self):
         return [(h, HAZARD_META[h]) for h in self.hazards if h in HAZARD_META]
 
+    @property
+    def start_point(self):
+        return _point_dict(_route_track_points(self) or _route_waypoint_points(self))
+
     @staticmethod
     def slope_color(pct):
         if pct is None: return 'secondary'
@@ -504,6 +509,61 @@ def _route_waypoint_points(route):
         if lat_lon:
             points.append((*lat_lon, wp.get('name')))
     return points
+
+
+def _point_dict(points):
+    return {'lat': points[0][0], 'lng': points[0][1]} if points else None
+
+
+def simplified_geometry(points, max_points=300):
+    if len(points) < 2:
+        return None
+    max_points = max(max_points, 2)
+    if len(points) > max_points:
+        step = (len(points) - 1) / (max_points - 1)
+        points = [points[round(i * step)] for i in range(max_points)]
+    return {'type': 'LineString',
+            'coordinates': [[round(p[1], 6), round(p[0], 6)] for p in points]}
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    a = (math.sin((phi2 - phi1) / 2) ** 2 +
+         math.cos(phi1) * math.cos(phi2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
+    return 2 * 6371.0 * math.asin(math.sqrt(min(1.0, a)))
+
+
+def _fold_text(text):
+    decomposed = unicodedata.normalize('NFKD', (text or '').casefold())
+    return ''.join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def _route_matches_tokens(route, tokens):
+    haystack = _fold_text(f'{route.name}\n{route.description or ""}')
+    return all(token in haystack for token in tokens)
+
+
+def _route_search_result(route, distance_km=None, track=None):
+    if track is None:
+        track = _route_track_points(route)
+    description = route.description or ''
+    if len(description) > 140:
+        description = description[:139].rstrip() + '…'
+    return {
+        'id': route.id,
+        'name': route.name,
+        'description': description,
+        'distance_km': route.distance_km,
+        'elevation_gain_m': route.elevation_gain_m,
+        'trail_type': route.trail_type,
+        'difficulty': route.difficulty,
+        'difficulty_label': route.difficulty_label,
+        'start': _point_dict(track or _route_waypoint_points(route)),
+        'distance_from_point_km': round(distance_km, 3) if distance_km is not None else None,
+        'geometry': simplified_geometry(track),
+        'url': url_for('route_detail', route_id=route.id),
+        'edit_url': url_for('map_view', route_id=route.id),
+    }
 
 
 def build_route_gpx(route):
@@ -707,6 +767,44 @@ def api_create_route():
     db.session.add(route)
     db.session.commit()
     return jsonify({'id': route.id, 'message': 'Percorso salvato'}), 201
+
+
+@app.route('/api/routes/search')
+@login_required
+def api_search_routes():
+    args = request.args
+    q = (args.get('q') or '').strip()[:100]
+    point = None
+    if 'lat' in args or 'lng' in args:
+        point = _valid_lat_lon(args.get('lat'), args.get('lng'))
+        if point is None:
+            return jsonify({'error': 'Parametri lat e lng mancanti o non validi.'}), 400
+    radius_km = _finite_float(args.get('radius_km'))
+    radius_km = 25.0 if radius_km is None else min(max(radius_km, 1.0), 200.0)
+    limit = args.get('limit', type=int)
+    limit = 20 if limit is None else min(max(limit, 1), 50)
+
+    routes = Route.query.filter_by(user_id=current_user().id)\
+        .order_by(Route.created_at.desc(), Route.id.desc()).all()
+    tokens = _fold_text(q).split()
+    if tokens:
+        routes = [r for r in routes if _route_matches_tokens(r, tokens)]
+
+    if point is None:
+        return jsonify({'results': [_route_search_result(r) for r in routes[:limit]]})
+
+    matches = []
+    for route in routes:
+        track = _route_track_points(route)
+        vertices = track or _route_waypoint_points(route)
+        if not vertices:
+            continue
+        distance = min(_haversine_km(point[0], point[1], v[0], v[1]) for v in vertices)
+        if distance <= radius_km:
+            matches.append((distance, route, track))
+    matches.sort(key=lambda m: m[0])
+    return jsonify({'results': [_route_search_result(route, distance, track)
+                                for distance, route, track in matches[:limit]]})
 
 
 @app.route('/api/routes/<int:route_id>', methods=['GET'])
