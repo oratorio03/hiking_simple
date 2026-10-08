@@ -46,11 +46,22 @@
       <strong>{{ cat.label }}</strong>
     </div>
     <div class="rules-grid">
-      {% for icon, color, text in cat.rules_detail %}
+      {% for icon, color, text in rules_detail %}
       <span class="rule-item">
         <i class="bi bi-{{ icon }}-fill text-{{ color }}"></i> {{ text }}
       </span>
       {% endfor %}
+    </div>
+    <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
+      <span class="rules-override-label small fw-semibold text-muted"><i class="bi bi-ladder me-1"></i>Ferrate:</span>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Ferrate">
+        <a href="{{ url_for('routes_list', category=filter_category) }}"
+           class="btn {% if not ferrata_mode %}btn-dark{% else %}btn-outline-secondary{% endif %}">Come categoria</a>
+        <a href="{{ url_for('routes_list', category=filter_category, ferrate='include') }}"
+           class="btn {% if ferrata_mode == 'include' %}btn-dark{% else %}btn-outline-secondary{% endif %}">Includi</a>
+        <a href="{{ url_for('routes_list', category=filter_category, ferrate='exclude') }}"
+           class="btn {% if ferrata_mode == 'exclude' %}btn-dark{% else %}btn-outline-secondary{% endif %}">Escludi</a>
+      </div>
     </div>
     {% if cat.forbidden_hazard_meta %}
     <div class="rules-hazards">

@@ -318,10 +318,23 @@ for _rules in CATEGORY_RULES.values():
     _rules.update(describe_category(_rules))
 
 
-def route_fails_category(route, rules):
-    """Return the text of the first rule the route breaks, or None when it fits."""
+FERRATA_MODES = {'include', 'exclude'}
+FERRATA_INTRINSIC_HAZARDS = {'esposto', 'roccia', 'tecnico'}
+
+
+def route_fails_category(route, rules, ferrata_mode=None):
+    """Return the text of the first rule the route breaks, or None when it fits.
+
+    ferrata_mode overrides the category preset: 'exclude' rejects every ferrata;
+    'include' accepts ferrate and exempts them from the CAI, surface, level and
+    exposure/rock/technical rules that are inherent to a ferrata. Slope limits still apply.
+    """
     text = rules['rule_text']
-    if rules['allowed_trail_types'] is not None and route.trail_type not in rules['allowed_trail_types']:
+    ferrata_included = ferrata_mode == 'include' and route.is_ferrata
+    if ferrata_mode == 'exclude' and route.is_ferrata:
+        return 'Nessuna ferrata'
+    if (rules['allowed_trail_types'] is not None and route.trail_type not in rules['allowed_trail_types']
+            and not (ferrata_included and route.trail_type == 'EEA')):
         return text['trail_type']
     slopes = {
         'avg_slope':  (route.avg_slope_pct, rules['max_avg_slope']),
@@ -334,13 +347,14 @@ def route_fails_category(route, rules):
         # Descent is stored as a negative percentage.
         if limit is not None and value is not None and abs(value) > limit:
             return text[check]
-    if rules['allowed_surfaces'] is not None and route.surface not in rules['allowed_surfaces']:
-        return text['surface']
-    if route.surface in rules['forbidden_surfaces']:
-        return text['forbidden_surface']
-    if rules['allowed_difficulties'] is not None and route.difficulty not in rules['allowed_difficulties']:
-        return text['difficulty']
-    if route.is_ferrata:
+    if not ferrata_included:
+        if rules['allowed_surfaces'] is not None and route.surface not in rules['allowed_surfaces']:
+            return text['surface']
+        if route.surface in rules['forbidden_surfaces']:
+            return text['forbidden_surface']
+        if rules['allowed_difficulties'] is not None and route.difficulty not in rules['allowed_difficulties']:
+            return text['difficulty']
+    if route.is_ferrata and not ferrata_included:
         if not rules['allow_ferrata']:
             return text['ferrata']
         limit = rules['max_ferrata_grade']
@@ -348,17 +362,30 @@ def route_fails_category(route, rules):
                       FERRATA_GRADES.index(route.ferrata_grade) > FERRATA_GRADES.index(limit)):
             return text['ferrata']
     hazards = set(route.hazards)
+    if ferrata_included:
+        hazards -= FERRATA_INTRINSIC_HAZARDS
     for key, _icon, _color, label in rules['forbidden_hazard_meta']:
         if key in hazards:
             return f'Attenzione segnalata: {label}'
     return None
 
 
-def apply_category_filter(routes, category):
+def apply_category_filter(routes, category, ferrata_mode=None):
     rules = CATEGORY_RULES.get(category)
     if not rules:
         return routes
-    return [route for route in routes if route_fails_category(route, rules) is None]
+    return [route for route in routes if route_fails_category(route, rules, ferrata_mode) is None]
+
+
+def category_rules_detail(rules, ferrata_mode=None):
+    lines = rules['rules_detail']
+    if ferrata_mode not in FERRATA_MODES:
+        return lines
+    preset = rules['rule_text'].get('ferrata')
+    lines = [line for line in lines if line[2] != preset]
+    if ferrata_mode == 'exclude':
+        return lines + [('x-circle', 'danger', 'Nessuna ferrata')]
+    return lines + [('check-circle', 'warning', 'Ferrate incluse (restano i limiti di pendenza)')]
 
 
 def _is_ferrata(trail_type, hazards):
@@ -768,9 +795,15 @@ def routes_list():
     user = current_user()
     category = request.args.get('category', '')
     all_routes = Route.query.filter_by(user_id=user.id).order_by(Route.created_at.desc()).all()
-    routes = apply_category_filter(all_routes, category)
+    ferrata_mode = request.args.get('ferrate')
+    if ferrata_mode not in FERRATA_MODES:
+        ferrata_mode = None
+    routes = apply_category_filter(all_routes, category, ferrata_mode)
+    rules = CATEGORY_RULES.get(category)
     return render_template('routes.html', routes=routes,
                            filter_category=category,
+                           ferrata_mode=ferrata_mode,
+                           rules_detail=category_rules_detail(rules, ferrata_mode) if rules else [],
                            total_routes=len(all_routes))
 
 
