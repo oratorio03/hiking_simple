@@ -154,4 +154,18 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/distance.js') }}"></script>
+<script>
+(function () {
+  var key = 'routes-scroll';
+  try {
+    var y = sessionStorage.getItem(key);
+    if (y !== null) { sessionStorage.removeItem(key); window.scrollTo({top: parseInt(y, 10) || 0, behavior: 'instant'}); }
+  } catch (e) {}
+  document.querySelectorAll('.override-group a').forEach(function (a) {
+    a.addEventListener('click', function () {
+      try { sessionStorage.setItem(key, String(window.scrollY)); } catch (e) {}
+    });
+  });
+})();
+</script>
 {% endblock %}

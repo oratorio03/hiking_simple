@@ -360,8 +360,8 @@ NOTE_CONFLICTS = {
     'Radici e terreno irregolare ammessi': {'terreno'},
     'Neve / ghiaccio: valutare le condizioni': {'neve'},
     'Tratti esposti e terreno tecnico ammessi': {'esposti', 'roccia'},
-    'Nessun limite: ferrate, alta quota e gradi alpini inclusi': _ALL_OVERRIDES - {'dati'},
-    'Qualsiasi pendenza e tipo di fondo': {'pend', 'fondo'},
+    'Nessun limite: ferrate, alta quota e gradi alpini inclusi': _ALL_OVERRIDES,
+    'Qualsiasi pendenza e tipo di fondo': {'pend', 'fondo', 'dati'},
 }
 _DERIVED_RULE_KEYS = ('rule_text', 'rules_detail', 'forbidden_hazard_meta')
 
@@ -391,6 +391,7 @@ def effective_rules(rules, overrides=None):
     eff = {k: v for k, v in rules.items() if k not in _DERIVED_RULE_KEYS}
     eff['forbidden_hazards'] = set(rules['forbidden_hazards'])
     eff['forbidden_surfaces'] = set(rules['forbidden_surfaces'])
+    eff['excluded_hazards'] = set()
     notes = [n for n in rules['notes'] if not NOTE_CONFLICTS.get(n, set()) & overrides.keys()]
     for sw in OVERRIDE_SWITCHES:
         mode = overrides.get(sw['key'])
@@ -405,6 +406,8 @@ def effective_rules(rules, overrides=None):
                 notes.append(sw['note'])
         elif sw['kind'] == 'hazards':
             hazards = set(sw['hazards'])
+            if not include:
+                eff['excluded_hazards'] = eff['excluded_hazards'] | hazards
             eff['forbidden_hazards'] = eff['forbidden_hazards'] - hazards if include else eff['forbidden_hazards'] | hazards
             notes.append(sw['allow'] if include else sw['deny'])
         elif sw['kind'] == 'surface':
@@ -413,6 +416,7 @@ def effective_rules(rules, overrides=None):
                 eff['forbidden_surfaces'] = set()
                 notes.append(sw['note'])
             else:
+                eff['strict_surface'] = True
                 allowed = eff['allowed_surfaces']
                 eff['allowed_surfaces'] = STABLE_SURFACES if allowed is None else set(allowed) & STABLE_SURFACES
         elif sw['kind'] == 'slope_data':
@@ -446,11 +450,13 @@ def _fails(route, rules):
         # Descent is stored as a negative percentage.
         if limit is not None and value is not None and abs(value) > limit:
             return text[check]
-    if not ferrata_included:
+    # An explicit fondo=exclude still binds ferrate; the preset's surface rules do not.
+    if not ferrata_included or rules.get('strict_surface'):
         if rules['allowed_surfaces'] is not None and route.surface not in rules['allowed_surfaces']:
             return text['surface']
         if route.surface in rules['forbidden_surfaces']:
             return text['forbidden_surface']
+    if not ferrata_included:
         if rules['allowed_difficulties'] is not None and route.difficulty not in rules['allowed_difficulties']:
             return text['difficulty']
     if route.is_ferrata and not ferrata_included:
@@ -462,7 +468,7 @@ def _fails(route, rules):
             return text['ferrata']
     hazards = set(route.hazards)
     if ferrata_included:
-        hazards -= FERRATA_INTRINSIC_HAZARDS
+        hazards -= FERRATA_INTRINSIC_HAZARDS - rules.get('excluded_hazards', set())
     for key, _icon, _color, label in rules['forbidden_hazard_meta']:
         if key in hazards:
             return f'Attenzione segnalata: {label}'
