@@ -318,18 +318,117 @@ for _rules in CATEGORY_RULES.values():
     _rules.update(describe_category(_rules))
 
 
-FERRATA_MODES = {'include', 'exclude'}
+# ── Per-view overrides ─────────────────────────────────────────────────────
+# Query-string switches layered on a category preset: each is include|exclude, absent = preset.
+# effective_rules() builds the rules both the filter and the displayed box are generated from.
+
+OVERRIDE_MODES = {'include', 'exclude'}
 FERRATA_INTRINSIC_HAZARDS = {'esposto', 'roccia', 'tecnico'}
+PEND_VALUES = (6, 8, 10, 12, 15, 20, 25, 30, 40)
+
+OVERRIDE_SWITCHES = (
+    {'key': 'ferrate', 'kind': 'ferrata', 'label': 'Ferrate', 'icon': 'bi-ladder',
+     'options': ('Includi', 'Escludi'),
+     'note': 'Ferrate incluse (restano i limiti di pendenza)'},
+    {'key': 'esposti', 'kind': 'hazards', 'label': 'Tratti esposti', 'icon': 'bi-exclamation-triangle',
+     'hazards': ('esposto',), 'options': ('Ammetti', 'Escludi'),
+     'allow': 'Tratti esposti ammessi', 'deny': 'Nessun tratto esposto'},
+    {'key': 'roccia', 'kind': 'hazards', 'label': 'Roccia / tecnico', 'icon': 'bi-triangle',
+     'hazards': ('roccia', 'tecnico'), 'options': ('Ammetti', 'Escludi'),
+     'allow': 'Roccia e terreno tecnico ammessi', 'deny': 'Nessuna roccia o terreno tecnico'},
+    {'key': 'neve', 'kind': 'hazards', 'label': 'Neve / ghiaccio', 'icon': 'bi-snow2',
+     'hazards': ('neve', 'ghiaccio', 'valanghe'), 'options': ('Ammetti', 'Escludi'),
+     'allow': 'Neve, ghiaccio e valanghe ammessi', 'deny': 'Nessuna neve, ghiaccio o valanga'},
+    {'key': 'terreno', 'kind': 'hazards', 'label': 'Terreno irregolare', 'icon': 'bi-tree',
+     'hazards': ('radici', 'gradini', 'fango', 'instabile'), 'options': ('Ammetti', 'Escludi'),
+     'allow': 'Terreno irregolare ammesso', 'deny': 'Nessun terreno irregolare'},
+    {'key': 'guadi', 'kind': 'hazards', 'label': 'Guadi', 'icon': 'bi-water',
+     'hazards': ('fiume',), 'options': ('Ammetti', 'Escludi'),
+     'allow': 'Guadi ammessi', 'deny': 'Nessun guado'},
+    {'key': 'fondo', 'kind': 'surface', 'label': 'Fondo', 'icon': 'bi-layers',
+     'options': ('Fondo: qualsiasi', 'Solo fondo stabile'), 'note': 'Fondo: qualsiasi'},
+    {'key': 'dati', 'kind': 'slope_data', 'label': 'Pendenza non misurata', 'icon': 'bi-rulers',
+     'options': ('Ammetti senza dati', 'Richiedi dati'), 'note': 'Percorsi senza dati di pendenza ammessi'},
+)
+PEND_SWITCH = {'key': 'pend', 'label': 'Pendenza massima', 'icon': 'bi-graph-up-arrow'}
+OVERRIDE_KEYS = {sw['key'] for sw in OVERRIDE_SWITCHES} | {'pend'}
+
+# Preset notes that an override would contradict (dropped when that switch is set at all).
+_ALL_OVERRIDES = OVERRIDE_KEYS
+NOTE_CONFLICTS = {
+    'Tratti esposti ammessi': {'esposti'},
+    'Radici e terreno irregolare ammessi': {'terreno'},
+    'Neve / ghiaccio: valutare le condizioni': {'neve'},
+    'Tratti esposti e terreno tecnico ammessi': {'esposti', 'roccia'},
+    'Nessun limite: ferrate, alta quota e gradi alpini inclusi': _ALL_OVERRIDES - {'dati'},
+    'Qualsiasi pendenza e tipo di fondo': {'pend', 'fondo'},
+}
+_DERIVED_RULE_KEYS = ('rule_text', 'rules_detail', 'forbidden_hazard_meta')
 
 
-def route_fails_category(route, rules, ferrata_mode=None):
-    """Return the text of the first rule the route breaks, or None when it fits.
+def parse_overrides(args):
+    overrides = {sw['key']: args.get(sw['key']) for sw in OVERRIDE_SWITCHES if args.get(sw['key']) in OVERRIDE_MODES}
+    pend = args.get('pend', type=int)
+    if pend in PEND_VALUES:
+        overrides['pend'] = pend
+    return overrides
 
-    ferrata_mode overrides the category preset: 'exclude' rejects every ferrata;
-    'include' accepts ferrate and exempts them from the CAI, surface, level and
-    exposure/rock/technical rules that are inherent to a ferrata. Slope limits still apply.
-    """
+
+def _valid_overrides(overrides):
+    if not overrides:
+        return {}
+    clean = {sw['key']: overrides[sw['key']] for sw in OVERRIDE_SWITCHES if overrides.get(sw['key']) in OVERRIDE_MODES}
+    if overrides.get('pend') in PEND_VALUES:
+        clean['pend'] = overrides['pend']
+    return clean
+
+
+def effective_rules(rules, overrides=None):
+    """The category rules with the overrides applied, plus regenerated text and hazard pills."""
+    overrides = _valid_overrides(overrides)
+    if not overrides:
+        return rules
+    eff = {k: v for k, v in rules.items() if k not in _DERIVED_RULE_KEYS}
+    eff['forbidden_hazards'] = set(rules['forbidden_hazards'])
+    eff['forbidden_surfaces'] = set(rules['forbidden_surfaces'])
+    notes = [n for n in rules['notes'] if not NOTE_CONFLICTS.get(n, set()) & overrides.keys()]
+    for sw in OVERRIDE_SWITCHES:
+        mode = overrides.get(sw['key'])
+        if not mode:
+            continue
+        include = mode == 'include'
+        if sw['kind'] == 'ferrata':
+            eff['ferrata_mode'] = mode
+            eff['allow_ferrata'] = include
+            eff['max_ferrata_grade'] = None
+            if include:
+                notes.append(sw['note'])
+        elif sw['kind'] == 'hazards':
+            hazards = set(sw['hazards'])
+            eff['forbidden_hazards'] = eff['forbidden_hazards'] - hazards if include else eff['forbidden_hazards'] | hazards
+            notes.append(sw['allow'] if include else sw['deny'])
+        elif sw['kind'] == 'surface':
+            if include:
+                eff['allowed_surfaces'] = None
+                eff['forbidden_surfaces'] = set()
+                notes.append(sw['note'])
+            else:
+                allowed = eff['allowed_surfaces']
+                eff['allowed_surfaces'] = STABLE_SURFACES if allowed is None else set(allowed) & STABLE_SURFACES
+        elif sw['kind'] == 'slope_data':
+            eff['require_slope_data'] = not include
+            if include:
+                notes.append(sw['note'])
+    if 'pend' in overrides:
+        eff['max_avg_slope'] = eff['max_slope_asc'] = eff['max_slope_desc'] = overrides['pend']
+    eff['notes'] = notes
+    eff.update(describe_category(eff))
+    return eff
+
+
+def _fails(route, rules):
     text = rules['rule_text']
+    ferrata_mode = rules.get('ferrata_mode')
     ferrata_included = ferrata_mode == 'include' and route.is_ferrata
     if ferrata_mode == 'exclude' and route.is_ferrata:
         return 'Nessuna ferrata'
@@ -370,22 +469,41 @@ def route_fails_category(route, rules, ferrata_mode=None):
     return None
 
 
-def apply_category_filter(routes, category, ferrata_mode=None):
+def route_fails_category(route, rules, overrides=None):
+    """Return the text of the first rule the route breaks, or None when it fits.
+
+    overrides (see parse_overrides) adjust the preset. ferrate=exclude rejects every ferrata;
+    ferrate=include accepts ferrate and exempts them from the CAI, surface, level and
+    exposure/rock/technical rules that are inherent to a ferrata. Slope limits still apply.
+    """
+    return _fails(route, effective_rules(rules, overrides))
+
+
+def apply_category_filter(routes, category, overrides=None):
     rules = CATEGORY_RULES.get(category)
     if not rules:
         return routes
-    return [route for route in routes if route_fails_category(route, rules, ferrata_mode) is None]
+    rules = effective_rules(rules, overrides)
+    return [route for route in routes if _fails(route, rules) is None]
 
 
-def category_rules_detail(rules, ferrata_mode=None):
-    lines = rules['rules_detail']
-    if ferrata_mode not in FERRATA_MODES:
-        return lines
-    preset = rules['rule_text'].get('ferrata')
-    lines = [line for line in lines if line[2] != preset]
-    if ferrata_mode == 'exclude':
-        return lines + [('x-circle', 'danger', 'Nessuna ferrata')]
-    return lines + [('check-circle', 'warning', 'Ferrate incluse (restano i limiti di pendenza)')]
+def override_controls(category, overrides):
+    """View model for the "Personalizza" buttons: toggling one switch keeps the others."""
+    def option(key, value, label):
+        args = {k: v for k, v in overrides.items() if k != key}
+        if value is not None:
+            args[key] = value
+        return {'label': label, 'active': overrides.get(key) == value, 'url': url_for('routes_list', category=category, **args)}
+
+    controls = [{'key': sw['key'], 'label': sw['label'], 'icon': sw['icon'],
+                 'options': [option(sw['key'], None, 'Come categoria'),
+                             option(sw['key'], 'include', sw['options'][0]),
+                             option(sw['key'], 'exclude', sw['options'][1])]}
+                for sw in OVERRIDE_SWITCHES]
+    controls.append({'key': 'pend', 'label': PEND_SWITCH['label'], 'icon': PEND_SWITCH['icon'],
+                     'options': [option('pend', None, 'Come categoria')] +
+                                [option('pend', value, f'{value}%') for value in PEND_VALUES]})
+    return controls
 
 
 def _is_ferrata(trail_type, hazards):
@@ -795,15 +913,15 @@ def routes_list():
     user = current_user()
     category = request.args.get('category', '')
     all_routes = Route.query.filter_by(user_id=user.id).order_by(Route.created_at.desc()).all()
-    ferrata_mode = request.args.get('ferrate')
-    if ferrata_mode not in FERRATA_MODES:
-        ferrata_mode = None
-    routes = apply_category_filter(all_routes, category, ferrata_mode)
+    overrides = parse_overrides(request.args)
+    routes = apply_category_filter(all_routes, category, overrides)
     rules = CATEGORY_RULES.get(category)
     return render_template('routes.html', routes=routes,
                            filter_category=category,
-                           ferrata_mode=ferrata_mode,
-                           rules_detail=category_rules_detail(rules, ferrata_mode) if rules else [],
+                           overrides=overrides,
+                           hazard_meta=effective_rules(rules, overrides)['forbidden_hazard_meta'] if rules else [],
+                           override_controls=override_controls(category, overrides) if rules else [],
+                           rules_detail=effective_rules(rules, overrides)['rules_detail'] if rules else [],
                            total_routes=len(all_routes))
 
 

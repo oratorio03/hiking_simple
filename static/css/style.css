@@ -277,6 +277,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0;
 }
 .rules-hazards-label { font-size: .72rem; font-weight: 600; color: #6c757d; margin-right: 2px; }
+.override-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; }
+.override-label { font-size: .75rem; font-weight: 600; color: #6c757d; min-width: 9.5rem; }
+.override-group { flex-wrap: wrap; }
+.override-group .btn { min-height: 36px; display: inline-flex; align-items: center; font-size: .75rem; }
+#custom-toggle { min-height: 36px; }
 .hazard-pill-sm { font-size: .66rem; padding: 1px 7px; color: #374151; opacity: 1; }
 
 /* ── text-orange (Bootstrap doesn't have it) ───────────────────────── */

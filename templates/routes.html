@@ -44,6 +44,10 @@
     <div class="d-flex align-items-center gap-2 mb-2">
       <i class="bi {{ cat.icon }} text-{{ cat.color }} fs-5"></i>
       <strong>{{ cat.label }}</strong>
+      {% if overrides %}
+      <span class="badge text-bg-dark fw-normal" id="custom-badge">personalizzato</span>
+      <a href="{{ url_for('routes_list', category=filter_category) }}" class="small ms-auto" id="reset-overrides">Ripristina preset</a>
+      {% endif %}
     </div>
     <div class="rules-grid">
       {% for icon, color, text in rules_detail %}
@@ -52,25 +56,32 @@
       </span>
       {% endfor %}
     </div>
-    <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
-      <span class="rules-override-label small fw-semibold text-muted"><i class="bi bi-ladder me-1"></i>Ferrate:</span>
-      <div class="btn-group btn-group-sm" role="group" aria-label="Ferrate">
-        <a href="{{ url_for('routes_list', category=filter_category) }}"
-           class="btn {% if not ferrata_mode %}btn-dark{% else %}btn-outline-secondary{% endif %}">Come categoria</a>
-        <a href="{{ url_for('routes_list', category=filter_category, ferrate='include') }}"
-           class="btn {% if ferrata_mode == 'include' %}btn-dark{% else %}btn-outline-secondary{% endif %}">Includi</a>
-        <a href="{{ url_for('routes_list', category=filter_category, ferrate='exclude') }}"
-           class="btn {% if ferrata_mode == 'exclude' %}btn-dark{% else %}btn-outline-secondary{% endif %}">Escludi</a>
-      </div>
-    </div>
-    {% if cat.forbidden_hazard_meta %}
+    {% if hazard_meta %}
     <div class="rules-hazards">
       <span class="rules-hazards-label">Esclusi se segnalati:</span>
-      {% for key, icon, color, label in cat.forbidden_hazard_meta %}
+      {% for key, icon, color, label in hazard_meta %}
       <span class="hazard-pill hazard-pill-sm border-{{ color }}"><i class="bi {{ icon }} text-{{ color }} me-1"></i>{{ label }}</span>
       {% endfor %}
     </div>
     {% endif %}
+    <button type="button" class="btn btn-sm btn-link p-0 mt-2 text-decoration-none" id="custom-toggle"
+            data-bs-toggle="collapse" data-bs-target="#custom-switches"
+            aria-expanded="{{ 'true' if overrides else 'false' }}" aria-controls="custom-switches">
+      <i class="bi bi-sliders me-1"></i>Personalizza
+    </button>
+    <div class="collapse{% if overrides %} show{% endif %}" id="custom-switches">
+      {% for ctl in override_controls %}
+      <div class="override-row">
+        <span class="override-label"><i class="bi {{ ctl.icon }} me-1"></i>{{ ctl.label }}</span>
+        <div class="btn-group btn-group-sm override-group" role="group" aria-label="{{ ctl.label }}">
+          {% for opt in ctl.options %}
+          <a href="{{ opt.url }}" class="btn {% if opt.active %}btn-dark{% else %}btn-outline-secondary{% endif %}"
+             {% if opt.active %}aria-current="true"{% endif %}>{{ opt.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
     <p class="text-muted small mb-0 mt-2">
       Mostro solo i percorsi che soddisfano queste condizioni.
       {% if not routes %}Nessun percorso corrisponde ai criteri.{% endif %}
@@ -125,13 +136,14 @@
     <i class="bi bi-funnel text-{{ CATEGORY_RULES[filter_category].color if filter_category else 'success' }}"></i>
     <p>
       {% if filter_category %}
-        Nessun percorso soddisfa i criteri di <strong>{{ CATEGORY_RULES[filter_category].label }}</strong>.
+        Nessun percorso soddisfa i criteri di <strong>{{ CATEGORY_RULES[filter_category].label }}</strong>{% if overrides %} personalizzati{% endif %}.
       {% else %}
         Nessun percorso ancora.
       {% endif %}
     </p>
     <a href="{{ url_for('map_view') }}" class="btn btn-success btn-sm">Crea il primo</a>
     {% if filter_category %}
+    {% if overrides %}<a href="{{ url_for('routes_list', category=filter_category) }}" class="btn btn-outline-secondary btn-sm ms-2">Ripristina preset</a>{% endif %}
     <a href="{{ url_for('routes_list') }}" class="btn btn-outline-secondary btn-sm ms-2">Mostra tutti</a>
     {% endif %}
   </div>
